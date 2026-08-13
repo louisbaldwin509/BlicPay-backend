@@ -1,0 +1,215 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // Swap to "postgresql" for production — see README.
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  clientId     String?   @unique // fòma "BP-xxxxxx" — jenere otomatikman lè li manke
+  fullName     String
+  phone        String    @unique
+  passwordHash String
+  role         String    @default("member") // "member" | "admin"
+  balance      Int       @default(0)        // stored as integer HTG (no decimals)
+  verified     Boolean   @default(false)
+  blocked      Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  deposits     Deposit[]
+  solMemberships SolMembership[]
+  withdrawals    Withdrawal[]
+  savingsGoals   SavingsGoal[]
+  loans          Loan[]
+  transfersSent     Transfer[] @relation("TransfersSent")
+  transfersReceived Transfer[] @relation("TransfersReceived")
+  kycSubmissions    KycSubmission[]
+  pockets           Pocket[]
+}
+
+model Deposit {
+  id          String    @id @default(cuid())
+  userId      String
+  amount      Int
+  method      String    // "moncash" | "natcash" | "usdt" | "zelle" | "biwo"
+  status      String    @default("pending") // "pending" | "confirmed" | "rejected"
+  reference   String    @unique
+  createdAt   DateTime  @default(now())
+  confirmedAt DateTime?
+  confirmedBy String?
+  user        User      @relation(fields: [userId], references: [id])
+}
+
+// Yon biznis ki vle resevwa peman via BLICPay sou pwòp sit entènèt li.
+model Merchant {
+  id              String           @id @default(cuid())
+  businessName    String
+  email           String           @unique
+  passwordHash    String
+  website         String?
+  publicKey       String           @unique // safe pou mete nan kòd front-end sit marchan an
+  secretKey       String           @unique // SEELMAN sèvè marchan an — pa janm nan front-end
+  webhookUrl      String?          // BLICPay rele URL sa a lè yon peman konfime
+  balance         Int              @default(0) // total HTG marchan an resevwa (kredite lè peman konfime)
+  createdAt       DateTime         @default(now())
+  paymentRequests PaymentRequest[]
+}
+
+// Yon "demand peman" marchan an kreye pou yon acha espesifik.
+// Kliyan BLICPay a konfime li soti nan sòld li — sa vin kredite balans marchan an
+// (nou swiv sa nan `merchantBalance` sou Merchant si w vle, oswa yon ledger apa pita).
+model PaymentRequest {
+  id          String    @id @default(cuid())
+  merchantId  String
+  amount      Int
+  currency    String    @default("HTG")
+  reference   String    // referans entèn marchan an bay (ID kòmand li, elatriye)
+  description String?
+  status      String    @default("pending") // "pending" | "paid" | "expired" | "cancelled"
+  payerUserId String?
+  createdAt   DateTime  @default(now())
+  paidAt      DateTime?
+  merchant    Merchant  @relation(fields: [merchantId], references: [id])
+}
+
+// Youn nan 90 gwoup Sòl yo (3 nivo × 3 frekans × 10 gwoup). Kreye yon sèl fwa
+// pa yon script "seed" — wè prisma/seed.js. `order` deside kilès gwoup ki dwe
+// ranpli avan pwochen an ka louvri pou nouvo demand.
+model SolGroup {
+  id          String          @id @default(cuid())
+  tierId      String          // "basic" | "standard" | "premium"
+  tier        String
+  frequencyId String          // "semenn" | "kenzenn" | "mwa"
+  frequency   String
+  name        String
+  order       Int
+  amount      Int
+  maxMembers  Int             @default(10)
+  currentTurn Int             @default(0)
+  createdAt   DateTime        @default(now())
+  memberships SolMembership[]
+}
+
+// Yon demand yon moun fè pou antre nan yon gwoup Sòl. Rete "pending" jiskaske
+// yon admin apwouve l oswa refize l — moun nan pa vin manm reyèl gwoup la
+// (pa konte nan konte manm yo, pa parèt nan wotasyon an) avan sa.
+model SolMembership {
+  id             String    @id @default(cuid())
+  groupId        String
+  userId         String
+  status         String    @default("pending") // "pending" | "approved" | "rejected"
+  turnIndex      Int?      // pozisyon nan wotasyon peman an, bay sèlman lè apwouve
+  lastPaidPeriod String?
+  requestedAt    DateTime  @default(now())
+  decidedAt      DateTime?
+  decidedBy      String?
+  group          SolGroup  @relation(fields: [groupId], references: [id])
+  user           User      @relation(fields: [userId], references: [id])
+
+  @@unique([groupId, userId])
+}
+
+// Yon demand retrè. Balans lan RETIRE IMEDYATMAN lè demand la fèt (pou moun
+// pa ka mande menm lajan an de fwa) — si admin refize l, nou remèt li.
+model Withdrawal {
+  id          String    @id @default(cuid())
+  userId      String
+  amount      Int
+  method      String    // "moncash" | "natcash" | "usdt" | "zelle" | "biwo"
+  status      String    @default("pending") // "pending" | "confirmed" | "rejected"
+  reference   String    @unique
+  createdAt   DateTime  @default(now())
+  confirmedAt DateTime?
+  confirmedBy String?
+  user        User      @relation(fields: [userId], references: [id])
+}
+
+// Yon objektif epay yon kliyan kreye pou li menm — lajan ki ladan l separe
+// de balans prensipal la jiskaske li retire l.
+model SavingsGoal {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String
+  target    Int
+  saved     Int       @default(0)
+  status    String    @default("active") // "active" | "completed" | "withdrawn"
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id])
+}
+
+// Yon demand prè. Rete "pending" jiskaske admin apwouve l — apwobasyon an
+// kredite montan an nan balans lan epi kreye vèsman yo (LoanInstallment).
+model Loan {
+  id                String            @id @default(cuid())
+  userId            String
+  amount            Int
+  months            Int
+  rate              Float             // pousantaj enterè plan an (egzanp 0.05 = 5%)
+  totalDue          Int
+  installmentAmount Int
+  status            String            @default("pending") // "pending" | "active" | "rejected" | "paid"
+  createdAt         DateTime          @default(now())
+  decidedAt         DateTime?
+  decidedBy         String?
+  user              User              @relation(fields: [userId], references: [id])
+  installments      LoanInstallment[]
+}
+
+model LoanInstallment {
+  id      String    @id @default(cuid())
+  loanId  String
+  n       Int
+  amount  Int
+  status  String    @default("pending") // "pending" | "paid"
+  paidAt  DateTime?
+  loan    Loan      @relation(fields: [loanId], references: [id])
+}
+
+// Yon transfè dirèk ant de kliyan BLICPay (pa telefòn). Balans yo ajiste nan
+// yon sèl transaksyon atomik pou lajan pa ka disparèt oswa double.
+model Transfer {
+  id         String   @id @default(cuid())
+  fromUserId String
+  toUserId   String
+  amount     Int
+  createdAt  DateTime @default(now())
+  fromUser   User     @relation("TransfersSent", fields: [fromUserId], references: [id])
+  toUser     User     @relation("TransfersReceived", fields: [toUserId], references: [id])
+}
+
+// Yon soumisyon dokiman KYC (pyès idantite + selfi) yon kliyan voye pou
+// verifye kont li. Imaj yo stoke kòm base64 dirèkteman nan baz done a —
+// pa gen sèvis stokaj cloud konfigire kounye a. Yon admin REYÈL dwe apwouve
+// oswa refize — pa gen apwobasyon otomatik.
+model KycSubmission {
+  id               String    @id @default(cuid())
+  userId           String
+  docType          String    // "paspò" | "CIN" | "lisans"
+  docImage         String    // done imaj la kòm base64
+  docMimeType      String
+  selfieImage      String    // done imaj la kòm base64
+  selfieMimeType   String
+  status           String    @default("pending") // "pending" | "approved" | "rejected"
+  rejectionReason  String?
+  submittedAt      DateTime  @default(now())
+  decidedAt        DateTime?
+  decidedBy        String?
+  user             User      @relation(fields: [userId], references: [id])
+}
+
+// Yon "pòch" BLIC Depo — yon sou-kont soup laj kliyan an ka kreye pou separe
+// lajan li (Ijans, Vwayaj, elatriye). Pa gen apwobasyon admin ki nesesè
+// paske se pwòp lajan kliyan an k ap deplase anndan kont li — men admin ka
+// wè yo tout pou sipèvizyon.
+model Pocket {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  balance   Int      @default(0)
+  target    Int?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
