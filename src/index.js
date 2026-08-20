@@ -8,7 +8,7 @@ import { adminRouter } from './routes/admin.js';
 import { merchantAuthRouter } from './routes/merchantAuth.js';
 import { merchantRouter } from './routes/merchant.js';
 import { paymentsRouter } from './routes/payments.js';
-
+import { kycRouter } from './routes/kyc.js';
 const app = express();
 
 const corsOrigin = process.env.CORS_ORIGIN || '';
@@ -24,7 +24,7 @@ app.use('/admin', adminRouter);
 app.use('/merchant/auth', merchantAuthRouter);
 app.use('/merchant', merchantRouter);
 app.use('/payments', paymentsRouter);
-
+app.use('/kyc', kycRouter);
 // Catch-all error handler — keeps unexpected errors from leaking stack
 // traces to clients while still logging them for you to debug.
 app.use((err, req, res, next) => {
