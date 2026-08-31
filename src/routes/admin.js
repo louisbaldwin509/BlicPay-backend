@@ -464,6 +464,74 @@ adminRouter.get('/transfers', async (req, res) => {
   res.json({ transfers });
 });
 
+// ---- KYC (Didit): egzamine rapò otomatik la anvan desizyon final ----
+// Didit fè kaptirasyon dokiman + selfi + liveness + AML pou nou — nou stoke
+// sèlman rapò rezilta a. Admin toujou dwe konfime (mòd semi-otomatik).
+
+adminRouter.get('/kyc/didit/pending', async (req, res) => {
+  const verifications = await prisma.kycVerification.findMany({
+    where: { status: 'pending' },
+    orderBy: { startedAt: 'asc' },
+    include: { user: { select: { fullName: true, phone: true } } },
+  });
+  res.json({ verifications });
+});
+
+adminRouter.get('/kyc/didit/:id', async (req, res) => {
+  const verification = await prisma.kycVerification.findUnique({
+    where: { id: req.params.id },
+    include: { user: { select: { fullName: true, phone: true } } },
+  });
+  if (!verification) return res.status(404).json({ error: 'Verifikasyon an pa jwenn.' });
+  res.json({ verification });
+});
+
+adminRouter.post('/kyc/didit/:id/approve', async (req, res) => {
+  const verification = await prisma.kycVerification.findUnique({ where: { id: req.params.id } });
+  if (!verification) return res.status(404).json({ error: 'Verifikasyon an pa jwenn.' });
+  if (verification.status !== 'pending') return res.status(409).json({ error: 'Verifikasyon sa a deja trete.' });
+
+  await prisma.$transaction([
+    prisma.kycVerification.update({
+      where: { id: verification.id },
+      data: { status: 'approved', decidedAt: new Date(), decidedBy: req.user.id },
+    }),
+    prisma.user.update({ where: { id: verification.userId }, data: { verified: true } }),
+  ]);
+
+  await notifyUser(verification.userId, {
+    title: 'Kont ou verifye',
+    body: 'Idantite w konfime — kont ou verifye kounye a.',
+    type: 'kyc',
+  });
+
+  res.json({ ok: true });
+});
+
+adminRouter.post('/kyc/didit/:id/reject', async (req, res) => {
+  const { reason } = req.body;
+  if (!reason?.trim()) return res.status(400).json({ error: 'Yon rezon obligatwa pou refize.' });
+
+  const verification = await prisma.kycVerification.findUnique({ where: { id: req.params.id } });
+  if (!verification) return res.status(404).json({ error: 'Verifikasyon an pa jwenn.' });
+  if (verification.status !== 'pending') return res.status(409).json({ error: 'Verifikasyon sa a deja trete.' });
+
+  await prisma.kycVerification.update({
+    where: { id: verification.id },
+    data: { status: 'rejected', rejectionReason: reason.trim(), decidedAt: new Date(), decidedBy: req.user.id },
+  });
+
+  await notifyUser(verification.userId, {
+    title: 'Demand verifikasyon refize',
+    body: reason.trim(),
+    type: 'kyc',
+  });
+
+  res.json({ ok: true });
+});
+
+// ---- KYC (ansyen sistèm — kite pou istorik/soumisyon ki poko trete anvan Didit) ----
+
 // ---- KYC: egzamine dokiman ak selfi yon kliyan voye ----
 
 adminRouter.get('/kyc/pending', async (req, res) => {
