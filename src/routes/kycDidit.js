@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../utils/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { notifyUser } from '../utils/notify.js';
 
 export const kycDiditRouter = Router();
 
@@ -68,5 +69,57 @@ kycDiditRouter.get('/status', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Didit status error:', err);
     res.status(500).json({ error: 'Nou pa t ka jwenn estati verifikasyon an.' });
+  }
+});
+
+// Didit rele URL sa a lè yon sesyon fini (oswa chanje estati). Nou PA fè
+// konfyans a kò webhook la pou detay yo — nou re-chèche desizyon final la
+// dirèkteman nan API Didit (ak kle sekrè nou an) pou evite yon moun ki ta
+// eseye fo yon apèl webhook. Sa a se yon wout PIBLIK — Didit pa ka voye yon
+// Authorization: Bearer <token> BLICPay, kidonk pa gen requireAuth isit la.
+kycDiditRouter.post('/webhook', async (req, res) => {
+  try {
+    const sessionId = req.body.session_id || req.body.sessionId;
+    if (!sessionId) {
+      return res.status(400).json({ error: 'session_id manke.' });
+    }
+
+    const verification = await prisma.kycVerification.findUnique({ where: { diditSessionId: sessionId } });
+    if (!verification) {
+      // Sesyon nou pa rekonèt — aksepte l san erè pou Didit pa reeseye plizyè fwa,
+      // men n ap log li pou nou ka egzamine l pita.
+      console.warn('Didit webhook: unknown session_id', sessionId);
+      return res.status(200).json({ ok: true });
+    }
+
+    const decisionRes = await fetch(`${DIDIT_API_BASE}/v3/session/${sessionId}/decision/`, {
+      headers: { 'x-api-key': process.env.DIDIT_API_KEY },
+    });
+    const decision = await decisionRes.json();
+
+    if (!decisionRes.ok) {
+      console.error('Didit decision fetch failed:', decision);
+      return res.status(200).json({ ok: true }); // Aksepte webhook la kanmenm, n ap reeseye pita si nesesè.
+    }
+
+    await prisma.kycVerification.update({
+      where: { id: verification.id },
+      data: {
+        diditStatus: decision.status,
+        diditReport: JSON.stringify(decision),
+      },
+    });
+
+    // Enfòme kliyan an rezilta a rive — men se admin ki ba desizyon final la.
+    await notifyUser(verification.userId, {
+      title: 'Verifikasyon w resevwa',
+      body: 'Nou resevwa rezilta verifikasyon idantite w — n ap egzamine l anvan konfimasyon final.',
+      type: 'kyc',
+    });
+
+    res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error('Didit webhook error:', err);
+    res.status(200).json({ ok: true }); // Toujou 200 pou Didit pa boumbade reeseye sou yon erè nou menm.
   }
 });
