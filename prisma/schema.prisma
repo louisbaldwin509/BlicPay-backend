@@ -29,6 +29,7 @@ model User {
   kycSubmissions    KycSubmission[]
   pockets           Pocket[]
   notifications     Notification[]
+  kycVerifications  KycVerification[]
 }
 
 model Deposit {
@@ -227,4 +228,23 @@ model Notification {
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id])
+}
+
+// Yon sesyon verifikasyon KYC ki fèt via Didit (ranplase ansyen KycSubmission
+// ki te stoke imaj yo dirèkteman). Didit jere kaptirasyon dokiman + selfi +
+// liveness + AML — nou stoke sèlman rapò rezilta a (diditReport, JSON tankou
+// tèks) ansanm ak desizyon FINAL admin lan (`status`), paske n ap opere an
+// mòd semi-otomatik: Didit analize, men yon admin REYÈL dwe konfime.
+model KycVerification {
+  id               String    @id @default(cuid())
+  userId           String
+  diditSessionId   String    @unique
+  diditStatus      String?   // "Not Started" | "In Progress" | "Approved" | "Declined" | "In Review"
+  diditReport      String?   // rapò konplè Didit voye a (JSON kòm tèks)
+  status           String    @default("pending") // "pending" | "approved" | "rejected" — desizyon admin an
+  rejectionReason  String?
+  startedAt        DateTime  @default(now())
+  decidedAt        DateTime?
+  decidedBy        String?
+  user             User      @relation(fields: [userId], references: [id])
 }
