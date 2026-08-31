@@ -137,6 +137,12 @@ adminRouter.post('/sol/requests/:id/approve', async (req, res) => {
     data: { status: 'approved', turnIndex: position, decidedAt: new Date(), decidedBy: req.user.id },
   });
 
+  await notifyUser(membership.userId, {
+    title: 'Demand Sòl apwouve',
+    body: `Ou antre nan gwoup "${membership.group.name}" — pozisyon #${position + 1} nan wotasyon an.`,
+    type: 'sol',
+  });
+
   res.json({ ok: true, membership: updated });
 });
 
@@ -166,7 +172,7 @@ adminRouter.patch('/sol/groups/:groupId/members/:membershipId/position', async (
 });
 
 adminRouter.post('/sol/requests/:id/reject', async (req, res) => {
-  const membership = await prisma.solMembership.findUnique({ where: { id: req.params.id } });
+  const membership = await prisma.solMembership.findUnique({ where: { id: req.params.id }, include: { group: true } });
   if (!membership) return res.status(404).json({ error: 'Demand sa a pa jwenn.' });
   if (membership.status !== 'pending') {
     return res.status(409).json({ error: 'Demand sa a deja trete.' });
@@ -175,6 +181,12 @@ adminRouter.post('/sol/requests/:id/reject', async (req, res) => {
   await prisma.solMembership.update({
     where: { id: membership.id },
     data: { status: 'rejected', decidedAt: new Date(), decidedBy: req.user.id },
+  });
+
+  await notifyUser(membership.userId, {
+    title: 'Demand Sòl refize',
+    body: `Demand ou pou antre nan gwoup "${membership.group.name}" refize.`,
+    type: 'sol',
   });
 
   res.json({ ok: true });
@@ -410,6 +422,12 @@ adminRouter.post('/loans/:id/approve', async (req, res) => {
     prisma.loanInstallment.createMany({ data: installments }),
   ]);
 
+  await notifyUser(loan.userId, {
+    title: 'Prè apwouve',
+    body: `Prè ${loan.amount.toLocaleString('fr-FR')} HTG ou a apwouve — lajan an nan balans ou.`,
+    type: 'loan',
+  });
+
   res.json({ ok: true });
 });
 
@@ -421,6 +439,12 @@ adminRouter.post('/loans/:id/reject', async (req, res) => {
   await prisma.loan.update({
     where: { id: loan.id },
     data: { status: 'rejected', decidedAt: new Date(), decidedBy: req.user.id },
+  });
+
+  await notifyUser(loan.userId, {
+    title: 'Demand prè refize',
+    body: `Demand prè ${loan.amount.toLocaleString('fr-FR')} HTG ou a refize.`,
+    type: 'loan',
   });
 
   res.json({ ok: true });
