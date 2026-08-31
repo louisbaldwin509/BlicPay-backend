@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../utils/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { memberPayoutDate } from '../utils/solDates.js';
+import { notifyUser } from '../utils/notify.js';
 
 export const adminRouter = Router();
 
@@ -450,6 +451,12 @@ adminRouter.post('/kyc/:id/approve', async (req, res) => {
     prisma.user.update({ where: { id: submission.userId }, data: { verified: true } }),
   ]);
 
+  await notifyUser(submission.userId, {
+    title: 'Kont ou verifye',
+    body: 'Idantite w konfime — kont ou verifye kounye a.',
+    type: 'kyc',
+  });
+
   res.json({ ok: true });
 });
 
@@ -464,6 +471,12 @@ adminRouter.post('/kyc/:id/reject', async (req, res) => {
   await prisma.kycSubmission.update({
     where: { id: submission.id },
     data: { status: 'rejected', rejectionReason: reason.trim(), decidedAt: new Date(), decidedBy: req.user.id },
+  });
+
+  await notifyUser(submission.userId, {
+    title: 'Demand verifikasyon refize',
+    body: reason.trim(),
+    type: 'kyc',
   });
 
   res.json({ ok: true });
