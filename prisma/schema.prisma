@@ -28,6 +28,7 @@ model User {
   transfersReceived Transfer[] @relation("TransfersReceived")
   kycSubmissions    KycSubmission[]
   pockets           Pocket[]
+  notifications     Notification[]
 }
 
 model Deposit {
@@ -210,6 +211,20 @@ model Pocket {
   name      String
   balance   Int      @default(0)
   target    Int?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// Yon notifikasyon pou yon kliyan — kreye otomatikman lè yon admin chanje
+// estati yon bagay ki apatyen a kliyan an (KYC, depo, retrè, prè, elatriye).
+// Kliyan an wè yo nan aplikasyon an lè li klike sou klòch la.
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  body      String
+  type      String   @default("general") // "kyc" | "deposit" | "withdrawal" | "loan" | "sol" | "general"
+  read      Boolean  @default(false)
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id])
 }
