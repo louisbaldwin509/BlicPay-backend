@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../utils/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { notifyUser } from '../utils/notify.js';
+import { diditStartLimiter } from '../middleware/rateLimit.js';
 
 export const kycDiditRouter = Router();
 
@@ -11,7 +12,7 @@ const DIDIT_API_BASE = 'https://verification.didit.me';
 // Didit, sove yon dosye KycVerification "pending" ki gen sessionId a, epi
 // voye bay kliyan an URL pou li ale konplete verifikasyon an (Didit jere
 // tout kaptirasyon dokiman + selfi + liveness + AML sou pwòp platfòm li).
-kycDiditRouter.post('/start', requireAuth, async (req, res) => {
+kycDiditRouter.post('/start', requireAuth, diditStartLimiter, async (req, res) => {
   try {
     const response = await fetch(`${DIDIT_API_BASE}/v3/session/`, {
       method: 'POST',
