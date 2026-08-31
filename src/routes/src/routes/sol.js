@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../utils/db.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireVerified } from '../middleware/auth.js';
 
 export const solRouter = Router();
 
@@ -73,8 +73,9 @@ solRouter.get('/groups/:id', async (req, res) => {
 });
 
 // Voye yon demand pou antre nan yon gwoup. Sa KREYE yon demand "pending" —
-// li PA fè moun nan vin manm otomatikman. Yon admin dwe apwouve l.
-solRouter.post('/groups/:id/request', async (req, res) => {
+// li PA fè moun nan vin manm otomatikman. Yon admin dwe apwouve l. Kont lan
+// dwe verifye (KYC) anvan li ka voye yon demand.
+solRouter.post('/groups/:id/request', requireVerified, async (req, res) => {
   const group = await prisma.solGroup.findUnique({ where: { id: req.params.id } });
   if (!group) return res.status(404).json({ error: 'Gwoup sa a pa jwenn.' });
 
