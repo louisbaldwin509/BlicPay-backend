@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { prisma } from '../utils/db.js';
 
 // Verifies the Authorization: Bearer <token> header and attaches
 // { id, role } to req.user. Rejects the request with 401 if missing
@@ -6,11 +7,9 @@ import jwt from 'jsonwebtoken';
 export function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
-
   if (!token) {
     return res.status(401).json({ error: 'Ou dwe konekte pou fè sa a.' });
   }
-
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     req.user = { id: payload.sub, role: payload.role };
@@ -28,15 +27,26 @@ export function requireAdmin(req, res, next) {
   next();
 }
 
+// Chain after requireAuth on any client action that should only be
+// available once KYC is approved (retrè, transfè, prè, demand Sòl).
+// Depo rete louvri pou tout moun — se poutèt sa `verified` pa nan JWT la
+// e nou al chèche l nan baz done a chak fwa (li ka chanje apre yon
+// apwobasyon KYC san kliyan an pa rekonekte).
+export async function requireVerified(req, res, next) {
+  const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { verified: true } });
+  if (!user?.verified) {
+    return res.status(403).json({ error: 'Ou dwe verifye kont ou (KYC) anvan ou ka fè sa a.' });
+  }
+  next();
+}
+
 // For the merchant dashboard (Bearer JWT from POST /merchant/auth/login).
 export function requireMerchantAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
-
   if (!token) {
     return res.status(401).json({ error: 'Ou dwe konekte pou fè sa a.' });
   }
-
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     if (payload.kind !== 'merchant') throw new Error('wrong token kind');
@@ -53,7 +63,6 @@ export function requireMerchantAuth(req, res, next) {
 export function requireMerchantSecretKey(req, res, next) {
   const header = req.headers.authorization || '';
   const secretKey = header.startsWith('Bearer ') ? header.slice(7) : null;
-
   if (!secretKey || !secretKey.startsWith('sk_')) {
     return res.status(401).json({ error: 'Kle sekrè a manke oswa li pa valab.' });
   }
