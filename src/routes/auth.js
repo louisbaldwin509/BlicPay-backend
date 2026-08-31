@@ -2,6 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../utils/db.js';
+import { loginLimiter } from '../middleware/rateLimit.js';
 
 export const authRouter = Router();
 
@@ -14,14 +15,27 @@ function signToken(user) {
 function publicUser(user) {
   return {
     id: user.id,
+    clientId: user.clientId,
     fullName: user.fullName,
     phone: user.phone,
     role: user.role,
     balance: user.balance,
+    verified: user.verified,
   };
 }
 
-authRouter.post('/register', async (req, res) => {
+// Kreye yon ID kliyan tankou "BP-482913", epi eseye ankò si li deja pran
+// (ra, men posib ak jenerasyon aleatwa).
+async function generateUniqueClientId() {
+  for (let i = 0; i < 5; i++) {
+    const candidate = 'BP-' + Math.floor(100000 + Math.random() * 900000);
+    const existing = await prisma.user.findUnique({ where: { clientId: candidate } });
+    if (!existing) return candidate;
+  }
+  throw new Error('Nou pa t ka jenere yon ID kliyan inik.');
+}
+
+authRouter.post('/register', loginLimiter, async (req, res) => {
   const { fullName, phone, password } = req.body;
 
   if (!fullName?.trim() || !phone?.trim() || !password || password.length < 6) {
@@ -36,21 +50,34 @@ authRouter.post('/register', async (req, res) => {
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
+  const clientId = await generateUniqueClientId();
   const user = await prisma.user.create({
-    data: { fullName: fullName.trim(), phone: phone.trim(), passwordHash },
+    data: { clientId, fullName: fullName.trim(), phone: phone.trim(), passwordHash },
   });
 
   res.status(201).json({ token: signToken(user), user: publicUser(user) });
 });
 
-authRouter.post('/login', async (req, res) => {
+// Rate-limite: pa plis pase 8 tantativ konneksyon pou menm IP la nan 15 min,
+// pou anpeche yon atak fòs brit sou modpas kliyan yo.
+authRouter.post('/login', loginLimiter, async (req, res) => {
   const { phone, password } = req.body;
 
-  const user = await prisma.user.findUnique({ where: { phone } });
+  let user = await prisma.user.findUnique({ where: { phone } });
   const valid = user && (await bcrypt.compare(password, user.passwordHash));
 
   if (!valid) {
     return res.status(401).json({ error: 'Nimewo oswa modpas la pa kòrèk.' });
+  }
+  if (user.blocked) {
+    return res.status(403).json({ error: 'Kont sa a bloke. Kontakte sipò BLICPay.' });
+  }
+
+  // Kont ki te egziste anvan nouvo chan clientId a ka pa gen youn — jenere l
+  // yon sèl fwa, otomatikman, san moun nan pa remake.
+  if (!user.clientId) {
+    const clientId = await generateUniqueClientId();
+    user = await prisma.user.update({ where: { id: user.id }, data: { clientId } });
   }
 
   res.json({ token: signToken(user), user: publicUser(user) });
