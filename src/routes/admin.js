@@ -40,6 +40,12 @@ adminRouter.post('/deposits/:id/confirm', async (req, res) => {
     }),
   ]);
 
+  await notifyUser(deposit.userId, {
+    title: 'Depo konfime',
+    body: `Depo ${deposit.amount.toLocaleString('fr-FR')} HTG ou a konfime — lajan an nan balans ou.`,
+    type: 'deposit',
+  });
+
   res.json({ ok: true, newBalance: updatedUser.balance });
 });
 
@@ -53,6 +59,12 @@ adminRouter.post('/deposits/:id/reject', async (req, res) => {
   await prisma.deposit.update({
     where: { id: deposit.id },
     data: { status: 'rejected', confirmedAt: new Date(), confirmedBy: req.user.id },
+  });
+
+  await notifyUser(deposit.userId, {
+    title: 'Depo refize',
+    body: `Depo ${deposit.amount.toLocaleString('fr-FR')} HTG ou a refize. Kontakte sipò si w panse gen yon erè.`,
+    type: 'deposit',
   });
 
   res.json({ ok: true });
@@ -314,6 +326,12 @@ adminRouter.post('/withdrawals/:id/confirm', async (req, res) => {
     data: { status: 'confirmed', confirmedAt: new Date(), confirmedBy: req.user.id },
   });
 
+  await notifyUser(withdrawal.userId, {
+    title: 'Retrè konfime',
+    body: `Retrè ${withdrawal.amount.toLocaleString('fr-FR')} HTG ou a konfime.`,
+    type: 'withdrawal',
+  });
+
   res.json({ ok: true });
 });
 
@@ -331,6 +349,12 @@ adminRouter.post('/withdrawals/:id/reject', async (req, res) => {
     }),
     prisma.user.update({ where: { id: withdrawal.userId }, data: { balance: { increment: withdrawal.amount } } }),
   ]);
+
+  await notifyUser(withdrawal.userId, {
+    title: 'Retrè refize',
+    body: `Retrè ${withdrawal.amount.toLocaleString('fr-FR')} HTG ou a refize — lajan an remèt nan balans ou.`,
+    type: 'withdrawal',
+  });
 
   res.json({ ok: true });
 });
