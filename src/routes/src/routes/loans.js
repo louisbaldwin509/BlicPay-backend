@@ -24,6 +24,15 @@ loansRouter.get('/my', async (req, res) => {
 
 // Kreye yon demand prè — rete "pending" jiskaske admin apwouve l. Balans lan
 // PA touche jiskaske apwobasyon an fèt. Kont lan dwe verifye (KYC) anvan.
+//
+// DEZAKTIVE TANPORÈMAN: fonksyonalite Prè a poko lanse bay kliyan yo
+// (montre kòm "Talè" nan app la). Lojik orijinal la kite an kòmantè pi ba
+// pou fasil remete l lè n pare pou louvri fonksyonalite a.
+loansRouter.post('/request', requireVerified, async (req, res) => {
+  return res.status(403).json({ error: 'Fonksyonalite Prè a poko disponib — l ap vini talè.' });
+});
+
+/*
 loansRouter.post('/request', requireVerified, async (req, res) => {
   const { amount, planIdx } = req.body;
   const numericAmount = Number(amount);
@@ -48,8 +57,12 @@ loansRouter.post('/request', requireVerified, async (req, res) => {
   });
   res.status(201).json({ loan });
 });
+*/
 
 // Peye pwochen vèsman ki poko peye a — soti nan balans prensipal la.
+//
+// Balans lan ak estati vèsman an chanje nan operasyon atomik (updateMany
+// ak kondisyon) pou anpeche double-peman si moun nan klike de fwa vit vit.
 loansRouter.post('/:id/pay-installment', async (req, res) => {
   const loan = await prisma.loan.findFirst({
     where: { id: req.params.id, userId: req.user.id },
@@ -59,13 +72,37 @@ loansRouter.post('/:id/pay-installment', async (req, res) => {
   if (loan.status !== 'active') return res.status(409).json({ error: 'Prè sa a pa aktif.' });
   const next = loan.installments.find((i) => i.status === 'pending');
   if (!next) return res.status(409).json({ error: 'Tout vèsman yo deja peye.' });
-  const user = await prisma.user.findUnique({ where: { id: req.user.id } });
-  if (user.balance < next.amount) return res.status(400).json({ error: 'Ou pa gen ase lajan pou vèsman sa a.' });
   const isLast = loan.installments.every((i) => i.id === next.id || i.status === 'paid');
-  await prisma.$transaction([
-    prisma.user.update({ where: { id: user.id }, data: { balance: { decrement: next.amount } } }),
-    prisma.loanInstallment.update({ where: { id: next.id }, data: { status: 'paid', paidAt: new Date() } }),
-    prisma.loan.update({ where: { id: loan.id }, data: { status: isLast ? 'paid' : 'active' } }),
-  ]);
-  res.json({ ok: true, finished: isLast });
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const balanceUpdate = await tx.user.updateMany({
+        where: { id: req.user.id, balance: { gte: next.amount } },
+        data: { balance: { decrement: next.amount } },
+      });
+      if (balanceUpdate.count === 0) {
+        throw new Error('INSUFFICIENT_BALANCE');
+      }
+
+      const installmentUpdate = await tx.loanInstallment.updateMany({
+        where: { id: next.id, status: 'pending' },
+        data: { status: 'paid', paidAt: new Date() },
+      });
+      if (installmentUpdate.count === 0) {
+        throw new Error('ALREADY_PAID');
+      }
+
+      await tx.loan.update({ where: { id: loan.id }, data: { status: isLast ? 'paid' : 'active' } });
+    });
+
+    res.json({ ok: true, finished: isLast });
+  } catch (err) {
+    if (err.message === 'INSUFFICIENT_BALANCE') {
+      return res.status(400).json({ error: 'Ou pa gen ase lajan pou vèsman sa a.' });
+    }
+    if (err.message === 'ALREADY_PAID') {
+      return res.status(409).json({ error: 'Vèsman sa a deja peye.' });
+    }
+    throw err;
+  }
 });
