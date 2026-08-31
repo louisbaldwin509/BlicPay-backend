@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../utils/db.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireVerified } from '../middleware/auth.js';
 
 export const loansRouter = Router();
 
@@ -23,23 +23,19 @@ loansRouter.get('/my', async (req, res) => {
 });
 
 // Kreye yon demand prè — rete "pending" jiskaske admin apwouve l. Balans lan
-// PA touche jiskaske apwobasyon an fèt.
-loansRouter.post('/request', async (req, res) => {
+// PA touche jiskaske apwobasyon an fèt. Kont lan dwe verifye (KYC) anvan.
+loansRouter.post('/request', requireVerified, async (req, res) => {
   const { amount, planIdx } = req.body;
   const numericAmount = Number(amount);
   const plan = LOAN_PLANS[planIdx];
-
   if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
     return res.status(400).json({ error: 'Montan an pa valab.' });
   }
   if (!plan) return res.status(400).json({ error: 'Plan prè a pa valab.' });
-
   const activeLoan = await prisma.loan.findFirst({ where: { userId: req.user.id, status: { in: ['pending', 'active'] } } });
   if (activeLoan) return res.status(409).json({ error: 'Ou gen yon prè an kou deja.' });
-
   const totalDue = Math.round(numericAmount * (1 + plan.rate));
   const installmentAmount = Math.round(totalDue / plan.months);
-
   const loan = await prisma.loan.create({
     data: {
       userId: req.user.id,
@@ -50,7 +46,6 @@ loansRouter.post('/request', async (req, res) => {
       installmentAmount,
     },
   });
-
   res.status(201).json({ loan });
 });
 
@@ -62,20 +57,15 @@ loansRouter.post('/:id/pay-installment', async (req, res) => {
   });
   if (!loan) return res.status(404).json({ error: 'Prè a pa jwenn.' });
   if (loan.status !== 'active') return res.status(409).json({ error: 'Prè sa a pa aktif.' });
-
   const next = loan.installments.find((i) => i.status === 'pending');
   if (!next) return res.status(409).json({ error: 'Tout vèsman yo deja peye.' });
-
   const user = await prisma.user.findUnique({ where: { id: req.user.id } });
   if (user.balance < next.amount) return res.status(400).json({ error: 'Ou pa gen ase lajan pou vèsman sa a.' });
-
   const isLast = loan.installments.every((i) => i.id === next.id || i.status === 'paid');
-
   await prisma.$transaction([
     prisma.user.update({ where: { id: user.id }, data: { balance: { decrement: next.amount } } }),
     prisma.loanInstallment.update({ where: { id: next.id }, data: { status: 'paid', paidAt: new Date() } }),
     prisma.loan.update({ where: { id: loan.id }, data: { status: isLast ? 'paid' : 'active' } }),
   ]);
-
   res.json({ ok: true, finished: isLast });
 });
