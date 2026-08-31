@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../utils/db.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireVerified } from '../middleware/auth.js';
 import { generateReference } from '../utils/reference.js';
 
 export const withdrawalsRouter = Router();
@@ -15,7 +15,7 @@ const VALID_METHODS = ['moncash', 'natcash', 'usdt', 'zelle', 'biwo'];
 // (updateMany ak yon kondisyon `balance >= montan`) pou anpeche de demand
 // ki soti anba men (double-klik, koneksyon lan) pase tou de an menm tan
 // epi mennen balans lan anba 0.
-withdrawalsRouter.post('/', requireAuth, async (req, res) => {
+withdrawalsRouter.post('/', requireAuth, requireVerified, async (req, res) => {
   const { amount, method } = req.body;
   const numericAmount = Math.round(Number(amount));
 
