@@ -41,6 +41,10 @@ loansRouter.post('/request', requireVerified, async (req, res) => {
     return res.status(400).json({ error: 'Montan an pa valab.' });
   }
   if (!plan) return res.status(400).json({ error: 'Plan prè a pa valab.' });
+  const requester = await prisma.user.findUnique({ where: { id: req.user.id }, select: { creditBanned: true } });
+  if (requester?.creditBanned) {
+    return res.status(403).json({ error: 'Kont ou pa ka mande yon prè ankò — kontakte sipò BLICPay.' });
+  }
   const activeLoan = await prisma.loan.findFirst({ where: { userId: req.user.id, status: { in: ['pending', 'active'] } } });
   if (activeLoan) return res.status(409).json({ error: 'Ou gen yon prè an kou deja.' });
   const totalDue = Math.round(numericAmount * (1 + plan.rate));
