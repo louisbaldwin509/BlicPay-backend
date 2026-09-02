@@ -19,6 +19,7 @@ model User {
   verified     Boolean   @default(false)
   blocked      Boolean   @default(false)
   creditBanned Boolean   @default(false) // eskli pou tout tan nan Sòl AK Prè sèlman (apre gwo pwoblèm peman) — lòt sèvis yo (depo, retrè, transfè, BLIC Depo) rete aksesib
+  pinHash      String?   // kòd PIN 4 chif la (hache, tankou modpas la) — konfime retrè + reverouye app la rapid
   createdAt    DateTime  @default(now())
   deposits     Deposit[]
   solMemberships SolMembership[]
