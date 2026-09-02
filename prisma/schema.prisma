@@ -18,6 +18,7 @@ model User {
   balance      Int       @default(0)        // stored as integer HTG (no decimals)
   verified     Boolean   @default(false)
   blocked      Boolean   @default(false)
+  creditBanned Boolean   @default(false) // eskli pou tout tan nan Sòl AK Prè sèlman (apre gwo pwoblèm peman) — lòt sèvis yo (depo, retrè, transfè, BLIC Depo) rete aksesib
   createdAt    DateTime  @default(now())
   deposits     Deposit[]
   solMemberships SolMembership[]
@@ -90,9 +91,39 @@ model SolGroup {
   order       Int
   amount      Int
   maxMembers  Int             @default(10)
-  currentTurn Int             @default(0)
+  currentTurn Int             @default(0) // peryòd/wotasyon aktyèl la (0-endekse)
+  startedAt   DateTime?       // admin deside kilè wotasyon an kòmanse (sèlman lè gwoup la plen)
+  completedAt DateTime?       // tout wotasyon fini (chak manm resevwa yon fwa)
   createdAt   DateTime        @default(now())
   memberships SolMembership[]
+  contributions SolContribution[]
+}
+
+// Kotizasyon yon manm dwe peye pou yon peryòd espesifik nan wotasyon an.
+// Kreye an lo lè admin kòmanse yon gwoup (oswa lè l pase nan pwochen peryòd
+// la). `status` rete "pending" jiskaske admin "trete peryòd la" — pa gen
+// kolekte pasyèl: swa yo peye tout, swa yo rete "an reta".
+//
+// Si premye tantativ lan echwe, nou make "late" ak yon dat gras 3 jou
+// (firstFailedAt). Apre 3 jou sa yo, li vin "overdue" epi yon penalite 1%
+// pa jou (penaltyAmount) kòmanse akimile pandan 5 jou anplis (max 5%). Yon
+// moun ki DEJA resevwa pòch li pa jwenn fenèt penalite a: apre 3 jou gras,
+// li ale dirèkteman nan "overdue" pou yon admin REYÈL deside sa pou fè.
+model SolContribution {
+  id            String        @id @default(cuid())
+  membershipId  String
+  groupId       String
+  period        Int           // 0-endekse, koresponn ak turnIndex k ap resevwa peryòd sa a
+  amount        Int           // orijinal kotizasyon an (san penalite)
+  penaltyAmount Int           @default(0) // 1% pa jou apre 3 jou gras la, akimile chak fwa admin "trete peryòd la"
+  status        String        @default("pending") // "pending" | "paid" | "late" | "overdue"
+  firstFailedAt DateTime?     // dat premye echèk la — baz pou kalkile 3 jou gras la
+  paidAt        DateTime?
+  createdAt     DateTime      @default(now())
+  membership    SolMembership @relation(fields: [membershipId], references: [id])
+  group         SolGroup      @relation(fields: [groupId], references: [id])
+
+  @@unique([membershipId, period])
 }
 
 // Yon demand yon moun fè pou antre nan yon gwoup Sòl. Rete "pending" jiskaske
@@ -102,22 +133,37 @@ model SolMembership {
   id             String    @id @default(cuid())
   groupId        String
   userId         String
-  status         String    @default("pending") // "pending" | "approved" | "rejected"
+  status         String    @default("pending") // "pending" | "approved" | "rejected" | "excluded"
   turnIndex      Int?      // pozisyon nan wotasyon peman an, bay sèlman lè apwouve
   lastPaidPeriod String?
   requestedAt    DateTime  @default(now())
   decidedAt      DateTime?
   decidedBy      String?
-  formApproved   Boolean   @default(false) // admin konfime li resevwa fòm siyen an POU GWOUP SA A (email/WhatsApp/biwo)
+  formApproved   Boolean   @default(false) // admin konfime li resevwa/verifye dokiman ki nesesè POU GWOUP SA A
   formDecidedAt  DateTime?
   formDecidedBy  String?
-  formFileData     String? // dokiman siyen an (scan/foto), kòm base64 — admin telechaje l, kliyan ka wè l sèlman (li pa ka modifye l)
-  formFileMimeType String?
-  formFileName     String?
-  group          SolGroup  @relation(fields: [groupId], references: [id])
-  user           User      @relation(fields: [userId], references: [id])
+  group          SolGroup      @relation(fields: [groupId], references: [id])
+  user           User          @relation(fields: [userId], references: [id])
+  documents      SolDocument[]
+  contributions  SolContribution[]
 
   @@unique([groupId, userId])
+}
+
+// Yon dokiman siyen ki gen rapò ak yon adezyon Sòl espesifik — egzanp: fòm
+// enfòmasyon pèsonèl la (voye pa email/WhatsApp/biwo), oswa kontra/akò kliyan
+// an siyen an prezans yon ajan. Admin telechaje yo (scan/foto) apre li resevwa
+// yo — kliyan ka SÈLMAN gade yo, li pa ka modifye anyen.
+model SolDocument {
+  id             String        @id @default(cuid())
+  membershipId   String
+  title          String        // egzanp: "Fiche d'informations personnelles", "Kontra siyen an biwo"
+  fileData       String        // dokiman an (scan/foto), kòm base64
+  fileMimeType   String
+  fileName       String?
+  uploadedAt     DateTime      @default(now())
+  uploadedBy     String        // ID admin ki telechaje l
+  membership     SolMembership @relation(fields: [membershipId], references: [id])
 }
 
 // Yon demand retrè. Balans lan RETIRE IMEDYATMAN lè demand la fèt (pou moun
