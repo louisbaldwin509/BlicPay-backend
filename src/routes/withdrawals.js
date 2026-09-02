@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import bcrypt from 'bcryptjs';
 import { prisma } from '../utils/db.js';
 import { requireAuth, requireVerified } from '../middleware/auth.js';
 import { generateReference } from '../utils/reference.js';
@@ -7,16 +8,12 @@ export const withdrawalsRouter = Router();
 
 const VALID_METHODS = ['moncash', 'natcash', 'usdt', 'zelle', 'biwo'];
 
-// Kreye yon demand retrè. Balans lan RETIRE IMEDYATMAN (nan yon transaksyon)
-// pou anpeche moun nan mande menm lajan an de fwa pandan l ap tann admin.
-// Si admin refize demand la pita, lajan an remèt (wè /admin/withdrawals/:id/reject).
-//
-// Verifikasyon balans lan ak dekont lan fèt nan YON SÈL operasyon atomik
-// (updateMany ak yon kondisyon `balance >= montan`) pou anpeche de demand
-// ki soti anba men (double-klik, koneksyon lan) pase tou de an menm tan
-// epi mennen balans lan anba 0.
+// Kreye yon demand retrè. Kliyan an DWE bay kòd PIN 4 chif li a — sa a
+// ranplase seyans selfi Didit la (pi rapid, gratis, san rale tan). Balans
+// lan RETIRE IMEDYATMAN (nan yon transaksyon atomik) pou anpeche moun nan
+// mande menm lajan an de fwa pandan l ap tann admin.
 withdrawalsRouter.post('/', requireAuth, requireVerified, async (req, res) => {
-  const { amount, method } = req.body;
+  const { amount, method, pin } = req.body;
   const numericAmount = Math.round(Number(amount));
 
   if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
@@ -24,6 +21,18 @@ withdrawalsRouter.post('/', requireAuth, requireVerified, async (req, res) => {
   }
   if (!VALID_METHODS.includes(method)) {
     return res.status(400).json({ error: 'Metòd retrè a pa rekonèt.' });
+  }
+  if (!pin || !/^\d{4}$/.test(pin)) {
+    return res.status(400).json({ error: 'Kòd PIN 4 chif la obligatwa.' });
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { pinHash: true } });
+  if (!user?.pinHash) {
+    return res.status(409).json({ error: 'Ou dwe kreye yon kòd PIN anvan ou ka fè yon retrè.' });
+  }
+  const pinValid = await bcrypt.compare(pin, user.pinHash);
+  if (!pinValid) {
+    return res.status(401).json({ error: 'Kòd PIN la pa kòrèk.' });
   }
 
   try {
