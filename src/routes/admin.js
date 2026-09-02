@@ -214,9 +214,73 @@ adminRouter.get('/users/:id', async (req, res) => {
   if (!user) return res.status(404).json({ error: 'Itilizatè a pa jwenn.' });
 
   const deposits = await prisma.deposit.findMany({ where: { userId: user.id }, orderBy: { createdAt: 'desc' }, take: 20 });
-  const solMemberships = await prisma.solMembership.findMany({ where: { userId: user.id }, include: { group: true } });
+  const solMemberships = await prisma.solMembership.findMany({
+    where: { userId: user.id },
+    include: {
+      group: true,
+      documents: { select: { id: true, title: true, fileMimeType: true, fileName: true, uploadedAt: true } },
+    },
+  });
 
   res.json({ user, deposits, solMemberships });
+});
+
+// ---- BLIC Sòl: dokiman siyen pou yon adezyon espesifik (fòm enfòmasyon, kontra
+// siyen an biwo, elatriye). Admin telechaje yo apre li resevwa yo (email/
+// WhatsApp/biwo) — kliyan ka sèlman gade yo, li pa ka modifye anyen.
+
+adminRouter.post('/sol/memberships/:id/documents', async (req, res) => {
+  const { title, fileData, fileMimeType, fileName } = req.body;
+  if (!title?.trim() || !fileData || !fileMimeType) {
+    return res.status(400).json({ error: 'Tit, dokiman an, ak kalite fichye a obligatwa.' });
+  }
+
+  const membership = await prisma.solMembership.findUnique({ where: { id: req.params.id } });
+  if (!membership) return res.status(404).json({ error: 'Adezyon sa a pa jwenn.' });
+
+  const doc = await prisma.solDocument.create({
+    data: {
+      membershipId: membership.id,
+      title: title.trim(),
+      fileData,
+      fileMimeType,
+      fileName: fileName || null,
+      uploadedBy: req.user.id,
+    },
+  });
+
+  await notifyUser(membership.userId, {
+    title: 'Nouvo dokiman disponib',
+    body: `Nou ajoute yon nouvo dokiman ("${doc.title}") nan dosye Sòl ou.`,
+    type: 'sol',
+  });
+
+  res.status(201).json({ ok: true, document: { id: doc.id, title: doc.title, uploadedAt: doc.uploadedAt } });
+});
+
+adminRouter.patch('/sol/memberships/:id/form-approve', async (req, res) => {
+  const { approved } = req.body;
+  const membership = await prisma.solMembership.findUnique({ where: { id: req.params.id } });
+  if (!membership) return res.status(404).json({ error: 'Adezyon sa a pa jwenn.' });
+
+  const updated = await prisma.solMembership.update({
+    where: { id: membership.id },
+    data: {
+      formApproved: !!approved,
+      formDecidedAt: new Date(),
+      formDecidedBy: req.user.id,
+    },
+  });
+
+  await notifyUser(membership.userId, {
+    title: approved ? 'Dokiman Sòl konfime' : 'Dokiman Sòl an atant',
+    body: approved
+      ? 'Nou konfime nou resevwa dokiman ki nesesè pou Sòl sa a.'
+      : 'Estati dokiman Sòl ou chanje — kontakte sipò si ou gen kesyon.',
+    type: 'sol',
+  });
+
+  res.json({ ok: true, formApproved: updated.formApproved });
 });
 
 adminRouter.patch('/users/:id/block', async (req, res) => {
