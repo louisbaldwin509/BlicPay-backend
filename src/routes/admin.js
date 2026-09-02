@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../utils/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
-import { memberPayoutDate } from '../utils/solDates.js';
+import { memberPayoutDate, getPeriodDates, formatHtDate } from '../utils/solDates.js';
 import { notifyUser } from '../utils/notify.js';
 
 export const adminRouter = Router();
@@ -104,6 +104,8 @@ adminRouter.get('/sol/requests/pending', async (req, res) => {
 // evite de moun pran menm pozisyon an si de admin apwouve an menm tan.
 // Apwouve yon demand — admin nan ka chwazi pozisyon nan wotasyon an (1ye plas,
 // 2yèm, elatriye). Si li pa chwazi youn, nou bay premye pozisyon ki lib la.
+const SOL_INTEGRATION_FEE_RATE = 0.015; // 1.5% — chaje sèlman lè admin apwouve manm nan
+
 adminRouter.post('/sol/requests/:id/approve', async (req, res) => {
   const { turnIndex } = req.body; // pozisyon 1-endekse (1 = premye plas), opsyonèl
   const membership = await prisma.solMembership.findUnique({ where: { id: req.params.id }, include: { group: true } });
@@ -132,14 +134,37 @@ adminRouter.post('/sol/requests/:id/approve', async (req, res) => {
     while (takenPositions.has(position)) position++;
   }
 
-  const updated = await prisma.solMembership.update({
-    where: { id: membership.id },
-    data: { status: 'approved', turnIndex: position, decidedAt: new Date(), decidedBy: req.user.id },
-  });
+  // Fè kliyan an peye frè entegrasyon 1.5% la kounye a (pa anvan) — operasyon
+  // atomik ak yon kondisyon `balance >= frè a` pou anpeche balans lan pase
+  // anba 0 si de apwobasyon ta rive an menm tan pou menm kliyan an.
+  const integrationFee = Math.round(membership.group.amount * SOL_INTEGRATION_FEE_RATE);
+
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      const balanceUpdate = await tx.user.updateMany({
+        where: { id: membership.userId, balance: { gte: integrationFee } },
+        data: { balance: { decrement: integrationFee } },
+      });
+      if (balanceUpdate.count === 0) {
+        throw new Error('INSUFFICIENT_BALANCE');
+      }
+
+      return tx.solMembership.update({
+        where: { id: membership.id },
+        data: { status: 'approved', turnIndex: position, decidedAt: new Date(), decidedBy: req.user.id },
+      });
+    });
+  } catch (err) {
+    if (err.message === 'INSUFFICIENT_BALANCE') {
+      return res.status(400).json({ error: `Kliyan an pa gen ase lajan pou peye frè entegrasyon an (${integrationFee.toLocaleString('fr-FR')} HTG).` });
+    }
+    throw err;
+  }
 
   await notifyUser(membership.userId, {
     title: 'Demand Sòl apwouve',
-    body: `Ou antre nan gwoup "${membership.group.name}" — pozisyon #${position + 1} nan wotasyon an.`,
+    body: `Ou antre nan gwoup "${membership.group.name}" — pozisyon #${position + 1} nan wotasyon an. Nou prelve ${integrationFee.toLocaleString('fr-FR')} HTG kòm frè entegrasyon.`,
     type: 'sol',
   });
 
@@ -169,6 +194,191 @@ adminRouter.patch('/sol/groups/:groupId/members/:membershipId/position', async (
 
   const updated = await prisma.solMembership.update({ where: { id: membership.id }, data: { turnIndex: position } });
   res.json({ ok: true, membership: updated });
+});
+
+// ---- BLIC Sòl: wotasyon reyèl (kòmanse gwoup la, trete chak peryòd, eskli manm) ----
+
+const SOL_GRACE_DAYS = 3;        // 3 premye jou yo — pa gen penalite ditou
+const SOL_PENALTY_WINDOW_DAYS = 5; // 5 jou apre gras la — penalite 1%/jou akimile
+const SOL_DAILY_PENALTY_RATE = 0.01;
+
+// Admin kòmanse wotasyon an — sèlman posib lè gwoup la PLEN. Sa kreye premye
+// seri kotizasyon yo (peryòd 0) pou tout manm apwouve yo.
+adminRouter.post('/sol/groups/:id/start', async (req, res) => {
+  const group = await prisma.solGroup.findUnique({ where: { id: req.params.id } });
+  if (!group) return res.status(404).json({ error: 'Gwoup sa a pa jwenn.' });
+  if (group.startedAt) return res.status(409).json({ error: 'Wotasyon sa a deja kòmanse.' });
+
+  const approvedMembers = await prisma.solMembership.findMany({ where: { groupId: group.id, status: 'approved' } });
+  if (approvedMembers.length < group.maxMembers) {
+    return res.status(409).json({ error: `Gwoup la poko plen (${approvedMembers.length}/${group.maxMembers}).` });
+  }
+
+  const updatedGroup = await prisma.$transaction(async (tx) => {
+    const g = await tx.solGroup.update({ where: { id: group.id }, data: { startedAt: new Date() } });
+    await tx.solContribution.createMany({
+      data: approvedMembers.map((m) => ({
+        membershipId: m.id,
+        groupId: group.id,
+        period: 0,
+        amount: group.amount,
+      })),
+    });
+    return g;
+  });
+
+  const dates = getPeriodDates(updatedGroup, 0);
+  for (const m of approvedMembers) {
+    await notifyUser(m.userId, {
+      title: 'Wotasyon Sòl kòmanse',
+      body: dates ? `Gwoup "${group.name}" kòmanse — kotizasyon ou dwe peye anvan ${formatHtDate(dates.deadline)}.` : `Gwoup "${group.name}" kòmanse.`,
+      type: 'sol',
+    });
+  }
+
+  res.json({ ok: true, group: updatedGroup });
+});
+
+// Admin "trete" peryòd aktyèl la: eseye kolekte kotizasyon tout manm ki poko
+// peye, aplike gras/penalite si nesesè, epi vèse pòch la si TOUT MOUN peye.
+adminRouter.post('/sol/groups/:id/process-period', async (req, res) => {
+  const group = await prisma.solGroup.findUnique({ where: { id: req.params.id } });
+  if (!group) return res.status(404).json({ error: 'Gwoup sa a pa jwenn.' });
+  if (!group.startedAt) return res.status(409).json({ error: 'Wotasyon sa a poko kòmanse.' });
+  if (group.completedAt) return res.status(409).json({ error: 'Wotasyon sa a fini deja.' });
+
+  const contributions = await prisma.solContribution.findMany({
+    where: { groupId: group.id, period: group.currentTurn },
+    include: { membership: true },
+  });
+
+  const now = new Date();
+  const results = [];
+
+  for (const c of contributions) {
+    if (c.status === 'paid') { results.push({ id: c.id, status: 'paid' }); continue; }
+
+    if (c.status === 'overdue') {
+      // Depase gras + penalite — pa gen plis tantativ otomatik, admin dwe deside.
+      results.push({ id: c.id, status: 'overdue' });
+      continue;
+    }
+
+    const alreadyReceivedPayout = c.membership.turnIndex != null && c.membership.turnIndex < group.currentTurn;
+    const daysSinceFail = c.firstFailedAt ? Math.floor((now - new Date(c.firstFailedAt)) / 86400000) : null;
+    let currentPenalty = c.penaltyAmount;
+    if (!alreadyReceivedPayout && daysSinceFail != null && daysSinceFail > SOL_GRACE_DAYS) {
+      const penaltyDays = Math.min(daysSinceFail - SOL_GRACE_DAYS, SOL_PENALTY_WINDOW_DAYS);
+      currentPenalty = Math.round(c.amount * SOL_DAILY_PENALTY_RATE * penaltyDays);
+    }
+    const totalDue = c.amount + currentPenalty;
+
+    const deduction = await prisma.user.updateMany({
+      where: { id: c.membership.userId, balance: { gte: totalDue } },
+      data: { balance: { decrement: totalDue } },
+    });
+
+    if (deduction.count > 0) {
+      await prisma.solContribution.update({
+        where: { id: c.id },
+        data: { status: 'paid', paidAt: now, penaltyAmount: currentPenalty },
+      });
+      results.push({ id: c.id, status: 'paid', penalty: currentPenalty });
+    } else {
+      // Echwe — detèmine nouvo estati a. Yon moun ki DEJA resevwa pòch li pa
+      // jwenn fenèt penalite a: apre 3 jou gras, li ale dirèkteman nan
+      // "overdue" (rekouvreman) paske yon senp frè pa yon bon ensitasyon
+      // pou yon moun ki deja jwenn sa l vle.
+      if (!c.firstFailedAt) {
+        await prisma.solContribution.update({ where: { id: c.id }, data: { firstFailedAt: now, status: 'late' } });
+        await notifyUser(c.membership.userId, {
+          title: 'Kotizasyon Sòl pa peye',
+          body: alreadyReceivedPayout
+            ? `Ou gen ${SOL_GRACE_DAYS} jou pou regilarize kotizasyon Sòl ou.`
+            : `Ou pa gen ase lajan pou kotizasyon Sòl ou. Ou gen ${SOL_GRACE_DAYS} jou gras anvan penalite kòmanse.`,
+          type: 'sol',
+        });
+        results.push({ id: c.id, status: 'late', penalty: 0 });
+      } else if (!alreadyReceivedPayout && daysSinceFail <= SOL_GRACE_DAYS + SOL_PENALTY_WINDOW_DAYS) {
+        await prisma.solContribution.update({ where: { id: c.id }, data: { status: 'late', penaltyAmount: currentPenalty } });
+        results.push({ id: c.id, status: 'late', penalty: currentPenalty });
+      } else if (alreadyReceivedPayout && daysSinceFail <= SOL_GRACE_DAYS) {
+        // Toujou nan 3 jou gras yo — pa gen chanjman estati toujou.
+        results.push({ id: c.id, status: 'late', penalty: 0 });
+      } else {
+        await prisma.solContribution.update({ where: { id: c.id }, data: { status: 'overdue', penaltyAmount: currentPenalty } });
+        await notifyUser(c.membership.userId, {
+          title: 'Kotizasyon Sòl an reta serye',
+          body: alreadyReceivedPayout
+            ? 'Ou deja resevwa pòch ou pou Sòl sa a, men ou pa peye kotizasyon ou — yon admin BLICPay ap kontakte w.'
+            : 'Delè gras ak penalite a pase — yon admin BLICPay ap kontakte w pou desizyon final.',
+          type: 'sol',
+        });
+        results.push({ id: c.id, status: 'overdue', penalty: currentPenalty });
+      }
+    }
+  }
+
+  const allPaid = results.every((r) => r.status === 'paid');
+  let payout = null;
+
+  if (allPaid && contributions.length === group.maxMembers) {
+    const recipient = await prisma.solMembership.findFirst({
+      where: { groupId: group.id, status: 'approved', turnIndex: group.currentTurn },
+    });
+
+    if (recipient) {
+      const potAmount = group.amount * group.maxMembers;
+      await prisma.user.update({ where: { id: recipient.userId }, data: { balance: { increment: potAmount } } });
+      await notifyUser(recipient.userId, {
+        title: 'Ou resevwa pòch Sòl ou',
+        body: `Ou resevwa ${potAmount.toLocaleString('fr-FR')} HTG pou "${group.name}".`,
+        type: 'sol',
+      });
+      payout = { userId: recipient.userId, amount: potAmount };
+    }
+
+    const nextTurn = group.currentTurn + 1;
+    if (nextTurn >= group.maxMembers) {
+      await prisma.solGroup.update({ where: { id: group.id }, data: { completedAt: new Date() } });
+    } else {
+      const approvedMembers = await prisma.solMembership.findMany({ where: { groupId: group.id, status: 'approved' } });
+      await prisma.solGroup.update({ where: { id: group.id }, data: { currentTurn: nextTurn } });
+      await prisma.solContribution.createMany({
+        data: approvedMembers.map((m) => ({
+          membershipId: m.id,
+          groupId: group.id,
+          period: nextTurn,
+          amount: group.amount,
+        })),
+      });
+    }
+  }
+
+  res.json({ ok: true, results, payout, allPaid });
+});
+
+// Admin eskli yon manm apre twòp reta oswa yon defo apre li fin resevwa pòch
+// li — bannisman an PÈMANAN pou Sòl AK Prè, men lòt sèvis yo rete aksesib.
+adminRouter.post('/sol/memberships/:id/exclude', async (req, res) => {
+  const membership = await prisma.solMembership.findUnique({ where: { id: req.params.id } });
+  if (!membership) return res.status(404).json({ error: 'Manm sa a pa jwenn.' });
+
+  await prisma.$transaction([
+    prisma.solMembership.update({
+      where: { id: membership.id },
+      data: { status: 'excluded', decidedAt: new Date(), decidedBy: req.user.id },
+    }),
+    prisma.user.update({ where: { id: membership.userId }, data: { creditBanned: true } }),
+  ]);
+
+  await notifyUser(membership.userId, {
+    title: 'Kont ou eskli nan Sòl',
+    body: 'Akòz plizyè pwoblèm peman, ou pa ka patisipe nan okenn Sòl oswa Prè ankò. Lòt sèvis BLICPay yo rete disponib.',
+    type: 'sol',
+  });
+
+  res.json({ ok: true });
 });
 
 adminRouter.post('/sol/requests/:id/reject', async (req, res) => {
