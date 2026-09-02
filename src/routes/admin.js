@@ -760,6 +760,31 @@ adminRouter.get('/kyc/didit/:id', async (req, res) => {
   res.json({ verification });
 });
 
+// Redemande rezilta a DIRÈKTEMAN nan Didit — pa depann sou webhook la ki ka
+// pran reta oswa pa rive. Admin klike sou sa lè rapò a rete "Not Started"
+// alòske verifikasyon an montre yon lòt estati sou Didit.
+adminRouter.post('/kyc/didit/:id/refresh', async (req, res) => {
+  const verification = await prisma.kycVerification.findUnique({ where: { id: req.params.id } });
+  if (!verification) return res.status(404).json({ error: 'Verifikasyon an pa jwenn.' });
+
+  const decisionRes = await fetch(`https://verification.didit.me/v3/session/${verification.diditSessionId}/decision/`, {
+    headers: { 'x-api-key': process.env.DIDIT_API_KEY },
+  });
+  const decision = await decisionRes.json();
+
+  if (!decisionRes.ok) {
+    return res.status(502).json({ error: 'Nou pa t ka kontakte Didit — eseye ankò.' });
+  }
+
+  const updated = await prisma.kycVerification.update({
+    where: { id: verification.id },
+    data: { diditStatus: decision.status, diditReport: JSON.stringify(decision) },
+    include: { user: { select: { fullName: true, phone: true } } },
+  });
+
+  res.json({ verification: updated });
+});
+
 adminRouter.post('/kyc/didit/:id/approve', async (req, res) => {
   const verification = await prisma.kycVerification.findUnique({ where: { id: req.params.id } });
   if (!verification) return res.status(404).json({ error: 'Verifikasyon an pa jwenn.' });
