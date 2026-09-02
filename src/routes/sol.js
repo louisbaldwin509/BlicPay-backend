@@ -8,6 +8,8 @@ solRouter.use(requireAuth);
 
 // Lis tout 90 gwoup yo, ak konbyen manm apwouve chak genyen, ak demand
 // pwòp itilizatè a (si genyen) pou chak gwoup.
+const SOL_INTEGRATION_FEE_RATE = 0.015; // 1.5% — kliyan wè sèlman montan an HTG, jamè pousantaj la
+
 solRouter.get('/groups', async (req, res) => {
   const groups = await prisma.solGroup.findMany({ orderBy: [{ frequencyId: 'asc' }, { tierId: 'asc' }, { order: 'asc' }] });
   const memberships = await prisma.solMembership.findMany({
@@ -43,6 +45,7 @@ solRouter.get('/groups', async (req, res) => {
       memberCount: approvedCounts[g.id] || 0,
       isOpen: openIds.has(g.id),
       myStatus: myStatusByGroup[g.id] || null,
+      integrationFee: Math.round(g.amount * SOL_INTEGRATION_FEE_RATE),
     })),
   });
 });
@@ -76,6 +79,11 @@ solRouter.get('/groups/:id', async (req, res) => {
 // li PA fè moun nan vin manm otomatikman. Yon admin dwe apwouve l. Kont lan
 // dwe verifye (KYC) anvan li ka voye yon demand.
 solRouter.post('/groups/:id/request', requireVerified, async (req, res) => {
+  const requester = await prisma.user.findUnique({ where: { id: req.user.id }, select: { creditBanned: true } });
+  if (requester?.creditBanned) {
+    return res.status(403).json({ error: 'Kont ou pa ka patisipe nan Sòl ankò — kontakte sipò BLICPay.' });
+  }
+
   const group = await prisma.solGroup.findUnique({ where: { id: req.params.id } });
   if (!group) return res.status(404).json({ error: 'Gwoup sa a pa jwenn.' });
 
