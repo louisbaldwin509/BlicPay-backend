@@ -34,8 +34,10 @@ kycDiditRouter.post('/start', requireAuth, diditStartLimiter, async (req, res) =
       return res.status(502).json({ error: 'Nou pa t kapab kòmanse verifikasyon an — eseye ankò pita.' });
     }
 
-    await prisma.kycVerification.create({
-      data: {
+    await prisma.kycVerification.upsert({
+      where: { diditSessionId: data.session_id },
+      update: { diditStatus: data.status || 'Not Started' },
+      create: {
         userId: req.user.id,
         diditSessionId: data.session_id,
         diditStatus: data.status || 'Not Started',
