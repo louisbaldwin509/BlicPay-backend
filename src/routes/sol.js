@@ -108,12 +108,38 @@ solRouter.post('/groups/:id/request', requireVerified, async (req, res) => {
   res.status(201).json({ membership });
 });
 
-// Tout demand ak adhezyon pwòp itilizatè a (pou paj "Sòl mwen yo").
+// Tout demand ak adhezyon pwòp itilizatè a (pou paj "Sòl mwen yo"), ansanm ak
+// dokiman ki gen rapò ak chak adezyon (san kontni fichye a — sa a rete leje).
 solRouter.get('/my', async (req, res) => {
   const memberships = await prisma.solMembership.findMany({
     where: { userId: req.user.id },
-    include: { group: true },
+    include: {
+      group: true,
+      documents: { select: { id: true, title: true, fileMimeType: true, fileName: true, uploadedAt: true } },
+    },
     orderBy: { requestedAt: 'desc' },
   });
   res.json({ memberships });
+});
+
+// Kliyan telechaje/gade yon dokiman espesifik li — sèlman si l aparyen a
+// youn nan pwòp adezyon li yo. Sa a se sèl kote kontni fichye a (base64) voye.
+solRouter.get('/documents/:id', async (req, res) => {
+  const doc = await prisma.solDocument.findUnique({
+    where: { id: req.params.id },
+    include: { membership: { select: { userId: true } } },
+  });
+  if (!doc || doc.membership.userId !== req.user.id) {
+    return res.status(404).json({ error: 'Dokiman an pa jwenn.' });
+  }
+  res.json({
+    document: {
+      id: doc.id,
+      title: doc.title,
+      fileData: doc.fileData,
+      fileMimeType: doc.fileMimeType,
+      fileName: doc.fileName,
+      uploadedAt: doc.uploadedAt,
+    },
+  });
 });
