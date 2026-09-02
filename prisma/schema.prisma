@@ -108,6 +108,12 @@ model SolMembership {
   requestedAt    DateTime  @default(now())
   decidedAt      DateTime?
   decidedBy      String?
+  formApproved   Boolean   @default(false) // admin konfime li resevwa fòm siyen an POU GWOUP SA A (email/WhatsApp/biwo)
+  formDecidedAt  DateTime?
+  formDecidedBy  String?
+  formFileData     String? // dokiman siyen an (scan/foto), kòm base64 — admin telechaje l, kliyan ka wè l sèlman (li pa ka modifye l)
+  formFileMimeType String?
+  formFileName     String?
   group          SolGroup  @relation(fields: [groupId], references: [id])
   user           User      @relation(fields: [userId], references: [id])
 
