@@ -3,10 +3,18 @@ import { prisma } from '../utils/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { memberPayoutDate, getPeriodDates, formatHtDate } from '../utils/solDates.js';
 import { notifyUser } from '../utils/notify.js';
+import { expireStaleMoncashDeposits } from './moncashDeposits.js';
 
 export const adminRouter = Router();
 
 adminRouter.use(requireAuth, requireAdmin);
+
+// Admin ka fòse netwayaj depo MonCash ki rete "pending" plis pase 24è san
+// pa tann pwochen tantativ yon kliyan.
+adminRouter.post('/deposits/moncash/expire-stale', async (req, res) => {
+  await expireStaleMoncashDeposits();
+  res.json({ ok: true });
+});
 
 adminRouter.get('/deposits/pending', async (req, res) => {
   const deposits = await prisma.deposit.findMany({
