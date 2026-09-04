@@ -8,11 +8,28 @@ import { createMoncashPayment, retrieveMoncashTransaction } from '../utils/monca
 export const moncashRouter = Router();
 
 const CLIENT_APP_URL = process.env.CLIENT_APP_URL || 'https://blicpayht.com';
+const STALE_AFTER_MS = 24 * 60 * 60 * 1000; // 24 èdtan
+
+// Depo MonCash ki rete "pending" plis pase 24è (kliyan an abandone peman an
+// san l pa fini) yo bay "rejected" otomatikman — pa gen lajan ki janm te
+// touche, se jis pou pa kite yo trennen pou tout tan nan lis annatant lan.
+export async function expireStaleMoncashDeposits() {
+  await prisma.deposit.updateMany({
+    where: {
+      method: 'moncash',
+      status: 'pending',
+      createdAt: { lt: new Date(Date.now() - STALE_AFTER_MS) },
+    },
+    data: { status: 'rejected' },
+  });
+}
 
 // Etap 1: kliyan an mande yon depo MonCash. Nou kreye yon anrejistreman
 // "pending" lokal, epi nou kreye sesyon peman an kot MonCash — kliyan an
 // redirije vè paj MonCash pou l peye.
 moncashRouter.post('/start', requireAuth, requireVerified, async (req, res) => {
+  await expireStaleMoncashDeposits();
+
   const { amount } = req.body;
   const numericAmount = Math.round(Number(amount));
 
