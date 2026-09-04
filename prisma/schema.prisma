@@ -19,7 +19,6 @@ model User {
   verified     Boolean   @default(false)
   blocked      Boolean   @default(false)
   creditBanned Boolean   @default(false) // eskli pou tout tan nan Sòl AK Prè sèlman (apre gwo pwoblèm peman) — lòt sèvis yo (depo, retrè, transfè, BLIC Depo) rete aksesib
-  pinHash      String?   // kòd PIN 4 chif la (hache, tankou modpas la) — konfime retrè + reverouye app la rapid
   createdAt    DateTime  @default(now())
   deposits     Deposit[]
   solMemberships SolMembership[]
@@ -95,6 +94,7 @@ model SolGroup {
   currentTurn Int             @default(0) // peryòd/wotasyon aktyèl la (0-endekse)
   startedAt   DateTime?       // admin deside kilè wotasyon an kòmanse (sèlman lè gwoup la plen)
   completedAt DateTime?       // tout wotasyon fini (chak manm resevwa yon fwa)
+  reserveBalance Int         @default(0) // lajan ki akimile pandan peryòd kote pèsonn pa resevwa (mwa 1-5) — sèvi pou konpanse peryòd ki gen 2 benefisyè
   createdAt   DateTime        @default(now())
   memberships SolMembership[]
   contributions SolContribution[]
@@ -106,19 +106,18 @@ model SolGroup {
 // kolekte pasyèl: swa yo peye tout, swa yo rete "an reta".
 //
 // Si premye tantativ lan echwe, nou make "late" ak yon dat gras 3 jou
-// (firstFailedAt). Apre 3 jou sa yo, li vin "overdue" epi yon penalite 1%
-// pa jou (penaltyAmount) kòmanse akimile pandan 5 jou anplis (max 5%). Yon
-// moun ki DEJA resevwa pòch li pa jwenn fenèt penalite a: apre 3 jou gras,
-// li ale dirèkteman nan "overdue" pou yon admin REYÈL deside sa pou fè.
+// (firstFailedAt). Si li toujou pa peye apre 3 jou sa yo, li vin "overdue" —
+// yon admin REYÈL dwe deside sa pou fè (eskli, penalize, elatriye), sistèm
+// nan pa fè anyen otomatikman apre sa.
 model SolContribution {
   id            String        @id @default(cuid())
   membershipId  String
   groupId       String
   period        Int           // 0-endekse, koresponn ak turnIndex k ap resevwa peryòd sa a
   amount        Int           // orijinal kotizasyon an (san penalite)
-  penaltyAmount Int           @default(0) // 1% pa jou apre 3 jou gras la, akimile chak fwa admin "trete peryòd la"
+  penaltyAmount Int           @default(0) // 1% pa jou apre 5 jou gras la, akimile chak fwa admin "trete peryòd la"
   status        String        @default("pending") // "pending" | "paid" | "late" | "overdue"
-  firstFailedAt DateTime?     // dat premye echèk la — baz pou kalkile 3 jou gras la
+  firstFailedAt DateTime?     // dat premye echèk la — baz pou kalkile 5 jou gras la
   paidAt        DateTime?
   createdAt     DateTime      @default(now())
   membership    SolMembership @relation(fields: [membershipId], references: [id])
@@ -143,12 +142,15 @@ model SolMembership {
   formApproved   Boolean   @default(false) // admin konfime li resevwa/verifye dokiman ki nesesè POU GWOUP SA A
   formDecidedAt  DateTime?
   formDecidedBy  String?
+  integrationFeePaid   Boolean   @default(false) // kliyan an peye frè entegrasyon 1.5% li a — obligatwa AVAN admin ka apwouve
   group          SolGroup      @relation(fields: [groupId], references: [id])
   user           User          @relation(fields: [userId], references: [id])
   documents      SolDocument[]
   contributions  SolContribution[]
-
-  @@unique([groupId, userId])
+  // Pa gen @@unique([groupId, userId]) ankò — sa pèmèt kont BLICPay a (kont
+  // "kay" la) kenbe PLIZYÈ pozisyon nan menm gwoup la (egzanp pozisyon 1 a 5).
+  // Doub-demand yon VRE kliyan anpeche nan kòd la (routes/sol.js), pa nan
+  // baz done a.
 }
 
 // Yon dokiman siyen ki gen rapò ak yon adezyon Sòl espesifik — egzanp: fòm
