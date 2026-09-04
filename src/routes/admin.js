@@ -91,11 +91,12 @@ adminRouter.get('/sol/requests/pending', async (req, res) => {
   });
   const takenMap = {};
   for (const m of approvedByGroup) {
-    (takenMap[m.groupId] = takenMap[m.groupId] || []).push(m.turnIndex + 1);
+    const g = (takenMap[m.groupId] = takenMap[m.groupId] || {});
+    g[m.turnIndex + 1] = (g[m.turnIndex + 1] || 0) + 1;
   }
 
   res.json({
-    requests: requests.map((r) => ({ ...r, takenPositions: takenMap[r.groupId] || [] })),
+    requests: requests.map((r) => ({ ...r, positionCounts: takenMap[r.groupId] || {} })),
   });
 });
 
@@ -113,58 +114,51 @@ adminRouter.post('/sol/requests/:id/approve', async (req, res) => {
   if (membership.status !== 'pending') {
     return res.status(409).json({ error: 'Demand sa a deja trete.' });
   }
-
-  const approvedMembers = await prisma.solMembership.findMany({ where: { groupId: membership.groupId, status: 'approved' } });
-  if (approvedMembers.length >= membership.group.maxMembers) {
-    return res.status(409).json({ error: 'Gwoup sa a konplè deja — pa ka apwouve ankò.' });
+  if (!membership.integrationFeePaid) {
+    return res.status(409).json({ error: 'Kliyan an poko peye frè entegrasyon li a — ou pa ka apwouve toujou.' });
   }
 
-  const takenPositions = new Set(approvedMembers.map((m) => m.turnIndex));
+  const approvedMembers = await prisma.solMembership.findMany({ where: { groupId: membership.groupId, status: 'approved' } });
+
+  // Pozisyon yo ka gen jiska 2 manm (egzanp: 2 vre kliyan k ap pataje menm
+  // pozisyon an). Konte konbyen moun ki deja nan chak pozisyon olye senpman
+  // tcheke si l "pran" oswa non. Pozisyon 1-5 rete VID espre pou tout Sòl —
+  // pèsonn pa ka apwouve la, se rezèv gwoup la sèlman.
+  const POSITION_CAPACITY = 2;
+  const FIRST_ASSIGNABLE_POSITION = 5; // pozisyon 6 (0-endekse: 5)
+  const occupancyCount = {};
+  for (const m of approvedMembers) {
+    occupancyCount[m.turnIndex] = (occupancyCount[m.turnIndex] || 0) + 1;
+  }
+
   let position;
   if (turnIndex != null) {
     position = Number(turnIndex) - 1;
     if (!Number.isInteger(position) || position < 0 || position >= membership.group.maxMembers) {
       return res.status(400).json({ error: 'Pozisyon an pa valab.' });
     }
-    if (takenPositions.has(position)) {
-      return res.status(409).json({ error: 'Pozisyon sa a deja pran pa yon lòt manm.' });
+    if (position < FIRST_ASSIGNABLE_POSITION) {
+      return res.status(409).json({ error: `Pozisyon 1 a ${FIRST_ASSIGNABLE_POSITION} rete vid espre — pa gen manm ki ka mete la.` });
+    }
+    if ((occupancyCount[position] || 0) >= POSITION_CAPACITY) {
+      return res.status(409).json({ error: 'Pozisyon sa a deja plen.' });
     }
   } else {
-    position = 0;
-    while (takenPositions.has(position)) position++;
-  }
-
-  // Fè kliyan an peye frè entegrasyon 1.5% la kounye a (pa anvan) — operasyon
-  // atomik ak yon kondisyon `balance >= frè a` pou anpeche balans lan pase
-  // anba 0 si de apwobasyon ta rive an menm tan pou menm kliyan an.
-  const integrationFee = Math.round(membership.group.amount * SOL_INTEGRATION_FEE_RATE);
-
-  let updated;
-  try {
-    updated = await prisma.$transaction(async (tx) => {
-      const balanceUpdate = await tx.user.updateMany({
-        where: { id: membership.userId, balance: { gte: integrationFee } },
-        data: { balance: { decrement: integrationFee } },
-      });
-      if (balanceUpdate.count === 0) {
-        throw new Error('INSUFFICIENT_BALANCE');
-      }
-
-      return tx.solMembership.update({
-        where: { id: membership.id },
-        data: { status: 'approved', turnIndex: position, decidedAt: new Date(), decidedBy: req.user.id },
-      });
-    });
-  } catch (err) {
-    if (err.message === 'INSUFFICIENT_BALANCE') {
-      return res.status(400).json({ error: `Kliyan an pa gen ase lajan pou peye frè entegrasyon an (${integrationFee.toLocaleString('fr-FR')} HTG).` });
+    position = FIRST_ASSIGNABLE_POSITION;
+    while ((occupancyCount[position] || 0) >= POSITION_CAPACITY) position++;
+    if (position >= membership.group.maxMembers) {
+      return res.status(409).json({ error: 'Gwoup sa a konplè deja — pa ka apwouve ankò.' });
     }
-    throw err;
   }
+
+  const updated = await prisma.solMembership.update({
+    where: { id: membership.id },
+    data: { status: 'approved', turnIndex: position, decidedAt: new Date(), decidedBy: req.user.id },
+  });
 
   await notifyUser(membership.userId, {
     title: 'Demand Sòl apwouve',
-    body: `Ou antre nan gwoup "${membership.group.name}" — pozisyon #${position + 1} nan wotasyon an. Nou prelve ${integrationFee.toLocaleString('fr-FR')} HTG kòm frè entegrasyon.`,
+    body: `Ou antre nan gwoup "${membership.group.name}" — pozisyon #${position + 1} nan wotasyon an.`,
     type: 'sol',
   });
 
@@ -210,8 +204,17 @@ adminRouter.post('/sol/groups/:id/start', async (req, res) => {
   if (group.startedAt) return res.status(409).json({ error: 'Wotasyon sa a deja kòmanse.' });
 
   const approvedMembers = await prisma.solMembership.findMany({ where: { groupId: group.id, status: 'approved' } });
-  if (approvedMembers.length < group.maxMembers) {
-    return res.status(409).json({ error: `Gwoup la poko plen (${approvedMembers.length}/${group.maxMembers}).` });
+
+  // Nan sistèm sa a, pozisyon 1 a 5 rete VID espre (pèsonn pa resevwa pandan
+  // 5 premye mwa yo — kotizasyon yo jis akimile kòm rezèv). Sèlman pozisyon
+  // 6 a 10 (turnIndex 5-9) bezwen omwen 1 manm chak pou gwoup la ka kòmanse.
+  const occupiedTurns = new Set(approvedMembers.map((m) => m.turnIndex));
+  const missingTurns = [];
+  for (let i = 5; i < group.maxMembers; i++) {
+    if (!occupiedTurns.has(i)) missingTurns.push(i + 1);
+  }
+  if (missingTurns.length > 0) {
+    return res.status(409).json({ error: `Gwoup la poko plen — pozisyon ${missingTurns.join(', ')} pa gen okenn manm.` });
   }
 
   const updatedGroup = await prisma.$transaction(async (tx) => {
@@ -320,23 +323,40 @@ adminRouter.post('/sol/groups/:id/process-period', async (req, res) => {
   }
 
   const allPaid = results.every((r) => r.status === 'paid');
-  let payout = null;
+  let payouts = [];
 
-  if (allPaid && contributions.length === group.maxMembers) {
-    const recipient = await prisma.solMembership.findFirst({
+  const totalApproved = await prisma.solMembership.count({ where: { groupId: group.id, status: 'approved' } });
+
+  if (allPaid && contributions.length === totalApproved) {
+    // Pozisyon 1-5 rete VID espre — pandan peryòd sa yo, pèsonn pa resevwa,
+    // kotizasyon yo jis vin ogmante rezèv gwoup la. Pozisyon 6-10 gen 2 manm
+    // chak — toude resevwa yon pòch KONPLÈ, konpanse pa rezèv la akimile a.
+    const recipients = await prisma.solMembership.findMany({
       where: { groupId: group.id, status: 'approved', turnIndex: group.currentTurn },
     });
 
-    if (recipient) {
-      const potAmount = group.amount * group.maxMembers;
-      await prisma.user.update({ where: { id: recipient.userId }, data: { balance: { increment: potAmount } } });
-      await notifyUser(recipient.userId, {
-        title: 'Ou resevwa pòch Sòl ou',
-        body: `Ou resevwa ${potAmount.toLocaleString('fr-FR')} HTG pou "${group.name}".`,
-        type: 'sol',
-      });
-      payout = { userId: recipient.userId, amount: potAmount };
+    const potAmount = group.amount * group.maxMembers;
+    let reserveDelta = 0;
+
+    if (recipients.length === 0) {
+      // Pa gen benefisyè pou peryòd sa a — kotizasyon yo ale nan rezèv la.
+      reserveDelta = potAmount;
+    } else {
+      for (const recipient of recipients) {
+        await prisma.user.update({ where: { id: recipient.userId }, data: { balance: { increment: potAmount } } });
+        await notifyUser(recipient.userId, {
+          title: 'Ou resevwa pòch Sòl ou',
+          body: `Ou resevwa ${potAmount.toLocaleString('fr-FR')} HTG pou "${group.name}".`,
+          type: 'sol',
+        });
+        payouts.push({ userId: recipient.userId, amount: potAmount });
+      }
+      // Premye benefisyè a peye ak kotizasyon peryòd sa a; nenpòt benefisyè
+      // anplis (2yèm nan, pa egzanp) peye ak rezèv akimile a.
+      reserveDelta = potAmount - (recipients.length * potAmount);
     }
+
+    await prisma.solGroup.update({ where: { id: group.id }, data: { reserveBalance: { increment: reserveDelta } } });
 
     const nextTurn = group.currentTurn + 1;
     if (nextTurn >= group.maxMembers) {
@@ -355,7 +375,7 @@ adminRouter.post('/sol/groups/:id/process-period', async (req, res) => {
     }
   }
 
-  res.json({ ok: true, results, payout, allPaid });
+  res.json({ ok: true, results, payouts, allPaid });
 });
 
 // Admin eskli yon manm apre twòp reta oswa yon defo apre li fin resevwa pòch
@@ -393,13 +413,22 @@ adminRouter.post('/sol/requests/:id/reject', async (req, res) => {
     data: { status: 'rejected', decidedAt: new Date(), decidedBy: req.user.id },
   });
 
+  // Si kliyan an te deja peye frè entegrasyon an, remèt li — refi a pa fòt li.
+  let refundedFee = 0;
+  if (membership.integrationFeePaid) {
+    refundedFee = Math.round(membership.group.amount * membership.group.maxMembers * SOL_INTEGRATION_FEE_RATE);
+    await prisma.user.update({ where: { id: membership.userId }, data: { balance: { increment: refundedFee } } });
+  }
+
   await notifyUser(membership.userId, {
     title: 'Demand Sòl refize',
-    body: `Demand ou pou antre nan gwoup "${membership.group.name}" refize.`,
+    body: refundedFee > 0
+      ? `Demand ou pou antre nan gwoup "${membership.group.name}" refize. Nou remèt ${refundedFee.toLocaleString('fr-FR')} HTG frè entegrasyon ou te peye a.`
+      : `Demand ou pou antre nan gwoup "${membership.group.name}" refize.`,
     type: 'sol',
   });
 
-  res.json({ ok: true });
+  res.json({ ok: true, refundedFee });
 });
 
 // ---- Itilizatè: rechèch, bloke/debloke, verifye, ajiste balans ----
