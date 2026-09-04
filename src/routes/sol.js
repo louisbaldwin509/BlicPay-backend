@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../utils/db.js';
 import { requireAuth, requireVerified } from '../middleware/auth.js';
+import { getPeriodDates, formatHtDate } from '../utils/solDates.js';
 
 export const solRouter = Router();
 
@@ -45,7 +46,7 @@ solRouter.get('/groups', async (req, res) => {
       memberCount: approvedCounts[g.id] || 0,
       isOpen: openIds.has(g.id),
       myStatus: myStatusByGroup[g.id] || null,
-      integrationFee: Math.round(g.amount * SOL_INTEGRATION_FEE_RATE),
+      integrationFee: Math.round(g.amount * g.maxMembers * SOL_INTEGRATION_FEE_RATE),
     })),
   });
 });
@@ -55,24 +56,12 @@ solRouter.get('/groups/:id', async (req, res) => {
   const group = await prisma.solGroup.findUnique({ where: { id: req.params.id } });
   if (!group) return res.status(404).json({ error: 'Gwoup sa a pa jwenn.' });
 
-  const memberships = await prisma.solMembership.findMany({
-    where: { groupId: group.id, status: 'approved' },
-    orderBy: { turnIndex: 'asc' },
-    include: { user: { select: { fullName: true } } },
-  });
-
+  // Pa gen non oswa detay lòt manm ki soti isit la — chak kliyan sèlman ka
+  // wè PWÒP adezyon pa li. Sa a se yon chwa konfidansyalite: patisipan yo pa
+  // dwe konnen ki lòt moun ki nan menm Sòl la.
   const mine = await prisma.solMembership.findFirst({ where: { groupId: group.id, userId: req.user.id } });
 
-  res.json({
-    group,
-    members: memberships.map((m) => ({
-      id: m.id,
-      name: m.user.fullName,
-      turnIndex: m.turnIndex,
-      lastPaidPeriod: m.lastPaidPeriod,
-    })),
-    myMembership: mine,
-  });
+  res.json({ group, myMembership: mine });
 });
 
 // Voye yon demand pou antre nan yon gwoup. Sa KREYE yon demand "pending" —
@@ -87,10 +76,10 @@ solRouter.post('/groups/:id/request', requireVerified, async (req, res) => {
   const group = await prisma.solGroup.findUnique({ where: { id: req.params.id } });
   if (!group) return res.status(404).json({ error: 'Gwoup sa a pa jwenn.' });
 
-  const already = await prisma.solMembership.findUnique({
-    where: { groupId_userId: { groupId: group.id, userId: req.user.id } },
+  const already = await prisma.solMembership.findFirst({
+    where: { groupId: group.id, userId: req.user.id, status: { not: 'rejected' } },
   });
-  if (already && already.status !== 'rejected') {
+  if (already) {
     return res.status(409).json({ error: 'Ou deja gen yon demand oswa ou deja manm gwoup sa a.' });
   }
 
@@ -118,6 +107,37 @@ solRouter.post('/groups/:id/request', requireVerified, async (req, res) => {
 
 // Tout demand ak adhezyon pwòp itilizatè a (pou paj "Sòl mwen yo"), ansanm ak
 // dokiman ki gen rapò ak chak adezyon (san kontni fichye a — sa a rete leje).
+// Kliyan an peye pwòp frè entegrasyon 1.5% li a — OBLIGATWA anvan admin ka
+// apwouve demand lan. Operasyon atomik (balance >= frè a) pou anpeche balans
+// lan pase anba 0.
+solRouter.post('/memberships/:id/pay-integration-fee', requireAuth, async (req, res) => {
+  const membership = await prisma.solMembership.findFirst({
+    where: { id: req.params.id, userId: req.user.id },
+    include: { group: true },
+  });
+  if (!membership) return res.status(404).json({ error: 'Demand sa a pa jwenn.' });
+  if (membership.status !== 'pending') {
+    return res.status(409).json({ error: 'Demand sa a deja trete — ou pa ka peye frè a ankò.' });
+  }
+  if (membership.integrationFeePaid) {
+    return res.status(409).json({ error: 'Ou deja peye frè entegrasyon an pou demand sa a.' });
+  }
+
+  const fee = Math.round(membership.group.amount * membership.group.maxMembers * SOL_INTEGRATION_FEE_RATE);
+
+  const updateResult = await prisma.user.updateMany({
+    where: { id: req.user.id, balance: { gte: fee } },
+    data: { balance: { decrement: fee } },
+  });
+  if (updateResult.count === 0) {
+    return res.status(400).json({ error: `Ou pa gen ase lajan pou peye frè entegrasyon an (${fee.toLocaleString('fr-FR')} HTG).` });
+  }
+
+  await prisma.solMembership.update({ where: { id: membership.id }, data: { integrationFeePaid: true } });
+
+  res.json({ ok: true, fee });
+});
+
 solRouter.get('/my', async (req, res) => {
   const memberships = await prisma.solMembership.findMany({
     where: { userId: req.user.id },
@@ -127,7 +147,27 @@ solRouter.get('/my', async (req, res) => {
     },
     orderBy: { requestedAt: 'desc' },
   });
-  res.json({ memberships });
+
+  // Pou chak adezyon apwouve nan yon gwoup ki deja kòmanse, jwenn kotizasyon
+  // peryòd AKTYÈL la — sa pèmèt kliyan an wè "ou peye" oswa "ou an reta" san
+  // li pa gen pou l fouye nan notifikasyon pase yo.
+  const withContribution = await Promise.all(memberships.map(async (m) => {
+    const integrationFee = Math.round(m.group.amount * m.group.maxMembers * SOL_INTEGRATION_FEE_RATE);
+    if (m.status !== 'approved' || !m.group.startedAt || m.group.completedAt) {
+      return { ...m, integrationFee, currentContribution: null, currentPeriodDates: null };
+    }
+    const contribution = await prisma.solContribution.findUnique({
+      where: { membershipId_period: { membershipId: m.id, period: m.group.currentTurn } },
+    });
+    const dates = getPeriodDates(m.group, m.group.currentTurn);
+    const currentPeriodDates = dates ? {
+      deadline: formatHtDate(dates.deadline),
+      payoutDate: formatHtDate(dates.payoutDate),
+    } : null;
+    return { ...m, integrationFee, currentContribution: contribution, currentPeriodDates };
+  }));
+
+  res.json({ memberships: withContribution });
 });
 
 // Kliyan telechaje/gade yon dokiman espesifik li — sèlman si l aparyen a
