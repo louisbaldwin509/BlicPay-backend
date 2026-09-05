@@ -8,6 +8,7 @@ export const withdrawalsRouter = Router();
 
 const VALID_METHODS = ['moncash', 'natcash', 'usdt', 'zelle', 'biwo'];
 const WITHDRAWAL_FEE_RATE = 0.0125; // 1.25% — kouvri kou operasyon (egzanp: frè MonCash pou soti kach)
+const MIN_WITHDRAWAL_AMOUNT = 250; // montan minimòm pou yon retrè, an HTG
 
 // Kliyan an rele sa a AVAN li konfime ak PIN, pou l wè frè EGZAK la (pa yon
 // estimasyon) anvan li aksepte — kalkil la depann de `feeableBalance` li,
@@ -42,6 +43,9 @@ withdrawalsRouter.post('/', requireAuth, requireVerified, async (req, res) => {
 
   if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
     return res.status(400).json({ error: 'Montan an pa valab.' });
+  }
+  if (numericAmount < MIN_WITHDRAWAL_AMOUNT) {
+    return res.status(400).json({ error: `Montan minimòm pou yon retrè se ${MIN_WITHDRAWAL_AMOUNT} HTG.` });
   }
   if (!VALID_METHODS.includes(method)) {
     return res.status(400).json({ error: 'Metòd retrè a pa rekonèt.' });
