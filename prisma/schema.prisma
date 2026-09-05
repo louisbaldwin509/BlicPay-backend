@@ -36,16 +36,19 @@ model User {
 }
 
 model Deposit {
-  id          String    @id @default(cuid())
-  userId      String
-  amount      Int
-  method      String    // "moncash" | "natcash" | "usdt" | "zelle" | "biwo"
-  status      String    @default("pending") // "pending" | "confirmed" | "rejected"
-  reference   String    @unique
-  createdAt   DateTime  @default(now())
-  confirmedAt DateTime?
-  confirmedBy String?
-  user        User      @relation(fields: [userId], references: [id])
+  id            String    @id @default(cuid())
+  userId        String
+  amount        Int
+  method        String    // "moncash" | "natcash" | "usdt" | "zelle" | "biwo"
+  status        String    @default("pending") // "pending" | "confirmed" | "rejected"
+  reference     String    @unique
+  transactionId String?   @unique // ID tranzaksyon kliyan an tape a la men (egzanp: pou NatCash) — INIK pou anpeche menm resi a itilize de fwa
+  proofImage    String?   // resi/kapti kliyan an telechaje a, kòm base64
+  proofMimeType String?
+  createdAt     DateTime  @default(now())
+  confirmedAt   DateTime?
+  confirmedBy   String?
+  user          User      @relation(fields: [userId], references: [id])
 }
 
 // Yon biznis ki vle resevwa peman via BLICPay sou pwòp sit entènèt li.
