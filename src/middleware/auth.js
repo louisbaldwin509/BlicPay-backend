@@ -1,6 +1,5 @@
 import jwt from 'jsonwebtoken';
 import { prisma } from '../utils/db.js';
-
 // Verifies the Authorization: Bearer <token> header and attaches
 // { id, role } to req.user. Rejects the request with 401 if missing
 // or invalid — every protected route depends on this running first.
@@ -18,15 +17,24 @@ export function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Sesyon an ekspire — konekte ankò.' });
   }
 }
-
-// Chain after requireAuth on any admin-only route.
+// Chain after requireAuth on any admin-only route (SIPÈ admin sèlman —
+// jesyon Sòl, KYC, itilizatè, finans, kreye ajan pou biwo yo, elatriye).
 export function requireAdmin(req, res, next) {
   if (req.user?.role !== 'admin') {
     return res.status(403).json({ error: 'Aksè refize — sa se pou admin sèlman.' });
   }
   next();
 }
-
+// Chain after requireAuth on routes ki ka itilize PA "admin" OSWA "agent"
+// (yon ajan yon biwo espesifik) — sèlman aksyon operasyonèl debaz tankou
+// konfime/rejte depo ak retrè. Tout lòt aksyon (jesyon Sòl, KYC, itilizatè,
+// finans) rete requireAdmin sèlman.
+export function requireAdminOrAgent(req, res, next) {
+  if (req.user?.role !== 'admin' && req.user?.role !== 'agent') {
+    return res.status(403).json({ error: 'Aksè refize — sa se pou admin oswa ajan sèlman.' });
+  }
+  next();
+}
 // Chain after requireAuth on any client action that should only be
 // available once KYC is approved (retrè, transfè, prè, demand Sòl).
 // Depo rete louvri pou tout moun — se poutèt sa `verified` pa nan JWT la
@@ -39,7 +47,6 @@ export async function requireVerified(req, res, next) {
   }
   next();
 }
-
 // For the merchant dashboard (Bearer JWT from POST /merchant/auth/login).
 export function requireMerchantAuth(req, res, next) {
   const header = req.headers.authorization || '';
@@ -56,7 +63,6 @@ export function requireMerchantAuth(req, res, next) {
     return res.status(401).json({ error: 'Sesyon an ekspire — konekte ankò.' });
   }
 }
-
 // For server-to-server calls from the merchant's own backend
 // (Authorization: Bearer sk_live_...). This is what a merchant uses to
 // create a payment request — never expose the secret key in browser code.
