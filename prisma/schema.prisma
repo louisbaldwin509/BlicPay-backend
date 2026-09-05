@@ -14,7 +14,8 @@ model User {
   fullName     String
   phone        String    @unique
   passwordHash String
-  role         String    @default("member") // "member" | "admin"
+  role         String    @default("member") // "member" | "admin" | "agent"
+  branch       String?   // sèlman pou "agent" — non/kote biwo li a (egzanp "Succursale 1")
   balance      Int       @default(0)        // stored as integer HTG (no decimals)
   verified     Boolean   @default(false)
   blocked      Boolean   @default(false)
@@ -148,6 +149,7 @@ model SolMembership {
   formDecidedAt  DateTime?
   formDecidedBy  String?
   integrationFeePaid   Boolean   @default(false) // kliyan an peye frè entegrasyon 1.5% li a — obligatwa AVAN admin ka apwouve
+  integrationFeePaidAt DateTime? // dat egzat li peye a — sèvi pou rapò finansye pa jou/mwa/ane
   group          SolGroup      @relation(fields: [groupId], references: [id])
   user           User          @relation(fields: [userId], references: [id])
   documents      SolDocument[]
@@ -300,7 +302,6 @@ model KycVerification {
   id               String    @id @default(cuid())
   userId           String
   diditSessionId   String    @unique
-  diditStatus      String?   // "Not Started" | "In Progress" | "Approved" | "Declined" | "In Review"
   diditReport      String?   // rapò konplè Didit voye a (JSON kòm tèks)
   status           String    @default("pending") // "pending" | "approved" | "rejected" — desizyon admin an
   rejectionReason  String?
