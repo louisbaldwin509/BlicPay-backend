@@ -18,6 +18,24 @@ adminRouter.use(requireAuth);
 // Sipè admin sèlman ka kreye yon nouvo kont ajan pou yon biwo espesifik.
 // Ajan an ka konfime/rejte depo ak retrè, men li pa gen aksè ak jesyon Sòl,
 // KYC, itilizatè, oswa rapò finansye — sa rete pou sipè admin sèlman.
+// Sipè admin ka ajoute yon nouvo siikisal, kantite li vle.
+adminRouter.post('/branches', requireAdmin, async (req, res) => {
+  const { name } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'Non siikisal la obligatwa.' });
+
+  const existing = await prisma.branch.findUnique({ where: { name: name.trim() } });
+  if (existing) return res.status(409).json({ error: 'Yon siikisal deja gen non sa a.' });
+
+  const branch = await prisma.branch.create({ data: { name: name.trim() } });
+  res.status(201).json({ branch });
+});
+
+// Sipè admin ka wè lis siikisal yo.
+adminRouter.get('/branches', requireAdmin, async (req, res) => {
+  const branches = await prisma.branch.findMany({ orderBy: { name: 'asc' } });
+  res.json({ branches });
+});
+
 adminRouter.post('/agents', requireAdmin, async (req, res) => {
   const { fullName, phone, password, branch } = req.body;
   if (!fullName?.trim() || !phone?.trim() || !password || !branch?.trim()) {
@@ -30,6 +48,10 @@ adminRouter.post('/agents', requireAdmin, async (req, res) => {
   const existing = await prisma.user.findUnique({ where: { phone: phone.trim() } });
   if (existing) {
     return res.status(409).json({ error: 'Yon kont deja itilize telefòn sa a.' });
+  }
+  const branchExists = await prisma.branch.findUnique({ where: { name: branch.trim() } });
+  if (!branchExists) {
+    return res.status(400).json({ error: 'Siikisal sa a pa egziste — kreye l anvan.' });
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
@@ -156,12 +178,26 @@ adminRouter.post('/deposits/moncash/expire-stale', requireAdmin, async (req, res
 });
 
 adminRouter.get('/deposits/pending', requireAdminOrAgent, async (req, res) => {
+  let agentBranch = null;
+  if (req.user.role === 'agent') {
+    const agent = await prisma.user.findUnique({ where: { id: req.user.id }, select: { branch: true } });
+    agentBranch = agent?.branch || null;
+  }
+
   const deposits = await prisma.deposit.findMany({
     // Depo MonCash yo TOUJOU otomatik (webhook konfime yo, oswa yo ekspire
     // apre 24è si kliyan an pa fini peman an) — yo pa dwe janm parèt isit
     // la pou konfimasyon MANYÈL, paske sa ta pèmèt kredite yon montan
     // pèsonn pa reyèlman verifye.
-    where: { status: 'pending', method: { not: 'moncash' } },
+    //
+    // Yon AJAN sèlman wè demand "biwo" ki matche pwòp siikisal li — lòt
+    // metòd yo (NatCash, elt.) pa gen rapò ak yon kote fizik, kidonk tout
+    // ajan ka wè yo.
+    where: {
+      status: 'pending',
+      method: { not: 'moncash' },
+      ...(agentBranch ? { OR: [{ method: { not: 'biwo' } }, { branch: agentBranch }] } : {}),
+    },
     orderBy: { createdAt: 'asc' },
     include: { user: { select: { fullName: true, phone: true } } },
   });
@@ -499,7 +535,10 @@ adminRouter.post('/sol/groups/:id/process-period', requireAdmin, async (req, res
       reserveDelta = potAmount;
     } else {
       for (const recipient of recipients) {
-        await prisma.user.update({ where: { id: recipient.userId }, data: { balance: { increment: potAmount } } });
+        await prisma.user.update({
+          where: { id: recipient.userId },
+          data: { balance: { increment: potAmount }, solPayoutBalance: { increment: potAmount } },
+        });
         await notifyUser(recipient.userId, {
           title: 'Ou resevwa pòch Sòl ou',
           body: `Ou resevwa ${potAmount.toLocaleString('fr-FR')} HTG pou "${group.name}".`,
@@ -777,8 +816,17 @@ adminRouter.get('/sol/groups/:id/members', requireAdmin, async (req, res) => {
 // ---- Retrait ----
 
 adminRouter.get('/withdrawals/pending', requireAdminOrAgent, async (req, res) => {
+  let agentBranch = null;
+  if (req.user.role === 'agent') {
+    const agent = await prisma.user.findUnique({ where: { id: req.user.id }, select: { branch: true } });
+    agentBranch = agent?.branch || null;
+  }
+
   const withdrawals = await prisma.withdrawal.findMany({
-    where: { status: 'pending' },
+    where: {
+      status: 'pending',
+      ...(agentBranch ? { OR: [{ method: { not: 'biwo' } }, { branch: agentBranch }] } : {}),
+    },
     orderBy: { createdAt: 'asc' },
     include: { user: { select: { fullName: true, phone: true } } },
   });
