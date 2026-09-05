@@ -90,7 +90,10 @@ moncashRouter.get('/callback', async (req, res) => {
         where: { id: deposit.id },
         data: { status: 'confirmed', confirmedAt: new Date(), confirmedBy: 'moncash-auto' },
       }),
-      prisma.user.update({ where: { id: deposit.userId }, data: { balance: { increment: deposit.amount } } }),
+      prisma.user.update({
+        where: { id: deposit.userId },
+        data: { balance: { increment: deposit.amount }, feeableBalance: { increment: deposit.amount } },
+      }),
     ]);
 
     await notifyUser(deposit.userId, {
