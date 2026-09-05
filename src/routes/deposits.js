@@ -6,6 +6,7 @@ import { generateReference } from '../utils/reference.js';
 export const depositsRouter = Router();
 
 const VALID_METHODS = ['moncash', 'natcash', 'usdt', 'zelle', 'biwo'];
+const MIN_DEPOSIT_AMOUNT = 100; // montan minimòm pou yon depo, an HTG
 
 // Create a deposit request. Every deposit starts as "pending" — nothing
 // here touches the user's balance. A deposit only becomes "confirmed"
@@ -15,25 +16,29 @@ const VALID_METHODS = ['moncash', 'natcash', 'usdt', 'zelle', 'biwo'];
 //     the part that needs real MonCash/NatCash/USDT/Zelle integration
 //     before this can go live).
 depositsRouter.post('/', requireAuth, async (req, res) => {
-  const { amount, method } = req.body;
+  const { amount, method, branch } = req.body;
   const numericAmount = Number(amount);
-
   if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
     return res.status(400).json({ error: 'Montan an pa valab.' });
+  }
+  if (numericAmount < MIN_DEPOSIT_AMOUNT) {
+    return res.status(400).json({ error: `Montan minimòm pou yon depo se ${MIN_DEPOSIT_AMOUNT} HTG.` });
   }
   if (!VALID_METHODS.includes(method)) {
     return res.status(400).json({ error: 'Metòd depo a pa rekonèt.' });
   }
-
+  if (method === 'biwo' && !branch?.trim()) {
+    return res.status(400).json({ error: 'Chwazi yon siikisal.' });
+  }
   const deposit = await prisma.deposit.create({
     data: {
       userId: req.user.id,
       amount: Math.round(numericAmount),
       method,
+      branch: method === 'biwo' ? branch.trim() : null,
       reference: generateReference(),
     },
   });
-
   res.status(201).json({ deposit });
 });
 
