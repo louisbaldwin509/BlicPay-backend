@@ -133,7 +133,7 @@ solRouter.post('/memberships/:id/pay-integration-fee', requireAuth, async (req, 
     return res.status(400).json({ error: `Ou pa gen ase lajan pou peye frè entegrasyon an (${fee.toLocaleString('fr-FR')} HTG).` });
   }
 
-  await prisma.solMembership.update({ where: { id: membership.id }, data: { integrationFeePaid: true } });
+  await prisma.solMembership.update({ where: { id: membership.id }, data: { integrationFeePaid: true, integrationFeePaidAt: new Date() } });
 
   res.json({ ok: true, fee });
 });
