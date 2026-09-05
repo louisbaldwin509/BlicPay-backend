@@ -1,24 +1,167 @@
 import { Router } from 'express';
+import bcrypt from 'bcryptjs';
 import { prisma } from '../utils/db.js';
-import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { requireAuth, requireAdmin, requireAdminOrAgent } from '../middleware/auth.js';
 import { memberPayoutDate, getPeriodDates, formatHtDate } from '../utils/solDates.js';
 import { notifyUser } from '../utils/notify.js';
 import { expireStaleMoncashDeposits } from './moncashDeposits.js';
 
 export const adminRouter = Router();
 
-adminRouter.use(requireAuth, requireAdmin);
+adminRouter.use(requireAuth);
+
+// Kalkile revni BLICPay pou yon peryòd espesifik, detaye pa sous. Peryòd yo
+// aksepte: "day" (jodi a), "month" (mwa sa a), "year" (ane sa a), "all"
+// (tout tan). N ap ajoute lòt sous revni (egzanp enterè Prè) lè fonksyonalite
+// sa yo vin aktif. Souvni: frè retrè yo sèlman konte lè retrè a "confirmed"
+// — sipoze si yon retrè "rejected" ranbouse kliyan an nèt (montan + frè).
+// Sipè admin sèlman ka kreye yon nouvo kont ajan pou yon biwo espesifik.
+// Ajan an ka konfime/rejte depo ak retrè, men li pa gen aksè ak jesyon Sòl,
+// KYC, itilizatè, oswa rapò finansye — sa rete pou sipè admin sèlman.
+adminRouter.post('/agents', requireAdmin, async (req, res) => {
+  const { fullName, phone, password, branch } = req.body;
+  if (!fullName?.trim() || !phone?.trim() || !password || !branch?.trim()) {
+    return res.status(400).json({ error: 'Non, telefòn, modpas, ak biwo obligatwa.' });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Modpas la dwe gen omwen 6 karaktè.' });
+  }
+
+  const existing = await prisma.user.findUnique({ where: { phone: phone.trim() } });
+  if (existing) {
+    return res.status(409).json({ error: 'Yon kont deja itilize telefòn sa a.' });
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const agent = await prisma.user.create({
+    data: {
+      fullName: fullName.trim(),
+      phone: phone.trim(),
+      passwordHash,
+      role: 'agent',
+      branch: branch.trim(),
+      verified: true,
+    },
+    select: { id: true, fullName: true, phone: true, branch: true, createdAt: true },
+  });
+
+  res.status(201).json({ agent });
+});
+
+// Sipè admin sèlman ka wè lis tout ajan yo, gwoupe pa biwo.
+adminRouter.get('/agents', requireAdmin, async (req, res) => {
+  const agents = await prisma.user.findMany({
+    where: { role: 'agent' },
+    select: { id: true, fullName: true, phone: true, branch: true, createdAt: true, blocked: true },
+    orderBy: { branch: 'asc' },
+  });
+  res.json({ agents });
+});
+
+adminRouter.get('/finance/summary', requireAdmin, async (req, res) => {
+  const period = req.query.period || 'month';
+  const now = new Date();
+  let start;
+  if (period === 'day') {
+    start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  } else if (period === 'year') {
+    start = new Date(now.getFullYear(), 0, 1);
+  } else if (period === 'all') {
+    start = new Date(0);
+  } else {
+    start = new Date(now.getFullYear(), now.getMonth(), 1); // "month" (defo)
+  }
+
+  const [paidMemberships, paidPenalties, confirmedWithdrawals] = await Promise.all([
+    prisma.solMembership.findMany({
+      where: { integrationFeePaid: true, integrationFeePaidAt: { gte: start } },
+      include: { group: { select: { amount: true, maxMembers: true } } },
+    }),
+    prisma.solContribution.aggregate({
+      where: { status: 'paid', paidAt: { gte: start }, penaltyAmount: { gt: 0 } },
+      _sum: { penaltyAmount: true },
+    }),
+    prisma.withdrawal.aggregate({
+      where: { status: 'confirmed', createdAt: { gte: start } },
+      _sum: { fee: true },
+    }),
+  ]);
+
+  const solIntegrationFees = paidMemberships.reduce(
+    (sum, m) => sum + Math.round(m.group.amount * m.group.maxMembers * SOL_INTEGRATION_FEE_RATE),
+    0,
+  );
+  const solPenalties = paidPenalties._sum.penaltyAmount || 0;
+  const withdrawalFees = confirmedWithdrawals._sum.fee || 0;
+
+  // Detay pa siikisal: pou chak depo/retrè konfime pandan peryòd la, jwenn
+  // biwo ajan ki konfime l la te travay ladan l (gras a `confirmedBy`).
+  const [confirmedDeposits, confirmedWithdrawalsFull] = await Promise.all([
+    prisma.deposit.findMany({
+      where: { status: 'confirmed', confirmedAt: { gte: start }, confirmedBy: { not: null } },
+      select: { amount: true, confirmedBy: true },
+    }),
+    prisma.withdrawal.findMany({
+      where: { status: 'confirmed', createdAt: { gte: start }, confirmedBy: { not: null } },
+      select: { amount: true, fee: true, confirmedBy: true },
+    }),
+  ]);
+
+  const agentIds = [...new Set([
+    ...confirmedDeposits.map((d) => d.confirmedBy),
+    ...confirmedWithdrawalsFull.map((w) => w.confirmedBy),
+  ])].filter((id) => id && id !== 'moncash-auto');
+
+  const agents = await prisma.user.findMany({
+    where: { id: { in: agentIds } },
+    select: { id: true, branch: true },
+  });
+  const branchByUserId = Object.fromEntries(agents.map((a) => [a.id, a.branch || 'San siikisal']));
+
+  const byBranch = {};
+  const addToBranch = (branch, { volume = 0, fees = 0, count = 0 }) => {
+    if (!byBranch[branch]) byBranch[branch] = { volume: 0, fees: 0, count: 0 };
+    byBranch[branch].volume += volume;
+    byBranch[branch].fees += fees;
+    byBranch[branch].count += count;
+  };
+
+  for (const d of confirmedDeposits) {
+    const branch = branchByUserId[d.confirmedBy];
+    if (branch) addToBranch(branch, { volume: d.amount, count: 1 });
+  }
+  for (const w of confirmedWithdrawalsFull) {
+    const branch = branchByUserId[w.confirmedBy];
+    if (branch) addToBranch(branch, { volume: w.amount, fees: w.fee, count: 1 });
+  }
+
+  res.json({
+    period,
+    since: start,
+    breakdown: {
+      solIntegrationFees,
+      solPenalties,
+      withdrawalFees,
+    },
+    total: solIntegrationFees + solPenalties + withdrawalFees,
+    byBranch,
+  });
+});
 
 // Admin ka fòse netwayaj depo MonCash ki rete "pending" plis pase 24è san
 // pa tann pwochen tantativ yon kliyan.
-adminRouter.post('/deposits/moncash/expire-stale', async (req, res) => {
+adminRouter.post('/deposits/moncash/expire-stale', requireAdmin, async (req, res) => {
   await expireStaleMoncashDeposits();
   res.json({ ok: true });
 });
 
-adminRouter.get('/deposits/pending', async (req, res) => {
+adminRouter.get('/deposits/pending', requireAdminOrAgent, async (req, res) => {
   const deposits = await prisma.deposit.findMany({
-    where: { status: 'pending' },
+    // Depo MonCash yo TOUJOU otomatik (webhook konfime yo, oswa yo ekspire
+    // apre 24è si kliyan an pa fini peman an) — yo pa dwe janm parèt isit
+    // la pou konfimasyon MANYÈL, paske sa ta pèmèt kredite yon montan
+    // pèsonn pa reyèlman verifye.
+    where: { status: 'pending', method: { not: 'moncash' } },
     orderBy: { createdAt: 'asc' },
     include: { user: { select: { fullName: true, phone: true } } },
   });
@@ -29,12 +172,17 @@ adminRouter.get('/deposits/pending', async (req, res) => {
 // transaction so a crash between the two steps can never leave the
 // deposit marked confirmed without the money actually landing in the
 // user's balance (or vice versa).
-adminRouter.post('/deposits/:id/confirm', async (req, res) => {
+adminRouter.post('/deposits/:id/confirm', requireAdminOrAgent, async (req, res) => {
   const deposit = await prisma.deposit.findUnique({ where: { id: req.params.id } });
 
   if (!deposit) return res.status(404).json({ error: 'Depo a pa jwenn.' });
   if (deposit.status !== 'pending') {
     return res.status(409).json({ error: 'Depo sa a deja trete.' });
+  }
+  if (deposit.method === 'moncash') {
+    return res.status(409).json({
+      error: 'Depo MonCash yo konfime otomatikman — yo pa ka konfime alamen. Si li rete "pending", se paske peman an poko fini.',
+    });
   }
 
   const [, updatedUser] = await prisma.$transaction([
@@ -57,7 +205,7 @@ adminRouter.post('/deposits/:id/confirm', async (req, res) => {
   res.json({ ok: true, newBalance: updatedUser.balance });
 });
 
-adminRouter.post('/deposits/:id/reject', async (req, res) => {
+adminRouter.post('/deposits/:id/reject', requireAdminOrAgent, async (req, res) => {
   const deposit = await prisma.deposit.findUnique({ where: { id: req.params.id } });
   if (!deposit) return res.status(404).json({ error: 'Depo a pa jwenn.' });
   if (deposit.status !== 'pending') {
@@ -80,7 +228,7 @@ adminRouter.post('/deposits/:id/reject', async (req, res) => {
 
 // ---- BLIC Sòl: apwobasyon adhezyon ----
 
-adminRouter.get('/sol/requests/pending', async (req, res) => {
+adminRouter.get('/sol/requests/pending', requireAdmin, async (req, res) => {
   const requests = await prisma.solMembership.findMany({
     where: { status: 'pending' },
     orderBy: { requestedAt: 'asc' },
@@ -115,7 +263,7 @@ adminRouter.get('/sol/requests/pending', async (req, res) => {
 // 2yèm, elatriye). Si li pa chwazi youn, nou bay premye pozisyon ki lib la.
 const SOL_INTEGRATION_FEE_RATE = 0.015; // 1.5% — chaje sèlman lè admin apwouve manm nan
 
-adminRouter.post('/sol/requests/:id/approve', async (req, res) => {
+adminRouter.post('/sol/requests/:id/approve', requireAdmin, async (req, res) => {
   const { turnIndex } = req.body; // pozisyon 1-endekse (1 = premye plas), opsyonèl
   const membership = await prisma.solMembership.findUnique({ where: { id: req.params.id }, include: { group: true } });
   if (!membership) return res.status(404).json({ error: 'Demand sa a pa jwenn.' });
@@ -174,7 +322,7 @@ adminRouter.post('/sol/requests/:id/approve', async (req, res) => {
 });
 
 // Chanje pozisyon yon manm ki deja apwouve (pou reòganize wotasyon an).
-adminRouter.patch('/sol/groups/:groupId/members/:membershipId/position', async (req, res) => {
+adminRouter.patch('/sol/groups/:groupId/members/:membershipId/position', requireAdmin, async (req, res) => {
   const { turnIndex } = req.body;
   const position = Number(turnIndex) - 1;
 
@@ -206,7 +354,7 @@ const SOL_DAILY_PENALTY_RATE = 0.01;
 
 // Admin kòmanse wotasyon an — sèlman posib lè gwoup la PLEN. Sa kreye premye
 // seri kotizasyon yo (peryòd 0) pou tout manm apwouve yo.
-adminRouter.post('/sol/groups/:id/start', async (req, res) => {
+adminRouter.post('/sol/groups/:id/start', requireAdmin, async (req, res) => {
   const group = await prisma.solGroup.findUnique({ where: { id: req.params.id } });
   if (!group) return res.status(404).json({ error: 'Gwoup sa a pa jwenn.' });
   if (group.startedAt) return res.status(409).json({ error: 'Wotasyon sa a deja kòmanse.' });
@@ -252,7 +400,7 @@ adminRouter.post('/sol/groups/:id/start', async (req, res) => {
 
 // Admin "trete" peryòd aktyèl la: eseye kolekte kotizasyon tout manm ki poko
 // peye, aplike gras/penalite si nesesè, epi vèse pòch la si TOUT MOUN peye.
-adminRouter.post('/sol/groups/:id/process-period', async (req, res) => {
+adminRouter.post('/sol/groups/:id/process-period', requireAdmin, async (req, res) => {
   const group = await prisma.solGroup.findUnique({ where: { id: req.params.id } });
   if (!group) return res.status(404).json({ error: 'Gwoup sa a pa jwenn.' });
   if (!group.startedAt) return res.status(409).json({ error: 'Wotasyon sa a poko kòmanse.' });
@@ -388,7 +536,7 @@ adminRouter.post('/sol/groups/:id/process-period', async (req, res) => {
 
 // Admin eskli yon manm apre twòp reta oswa yon defo apre li fin resevwa pòch
 // li — bannisman an PÈMANAN pou Sòl AK Prè, men lòt sèvis yo rete aksesib.
-adminRouter.post('/sol/memberships/:id/exclude', async (req, res) => {
+adminRouter.post('/sol/memberships/:id/exclude', requireAdmin, async (req, res) => {
   const membership = await prisma.solMembership.findUnique({ where: { id: req.params.id } });
   if (!membership) return res.status(404).json({ error: 'Manm sa a pa jwenn.' });
 
@@ -409,7 +557,7 @@ adminRouter.post('/sol/memberships/:id/exclude', async (req, res) => {
   res.json({ ok: true });
 });
 
-adminRouter.post('/sol/requests/:id/reject', async (req, res) => {
+adminRouter.post('/sol/requests/:id/reject', requireAdmin, async (req, res) => {
   const membership = await prisma.solMembership.findUnique({ where: { id: req.params.id }, include: { group: true } });
   if (!membership) return res.status(404).json({ error: 'Demand sa a pa jwenn.' });
   if (membership.status !== 'pending') {
@@ -441,7 +589,7 @@ adminRouter.post('/sol/requests/:id/reject', async (req, res) => {
 
 // ---- Itilizatè: rechèch, bloke/debloke, verifye, ajiste balans ----
 
-adminRouter.get('/users', async (req, res) => {
+adminRouter.get('/users', requireAdmin, async (req, res) => {
   const { search } = req.query;
   const users = await prisma.user.findMany({
     where: search
@@ -453,7 +601,7 @@ adminRouter.get('/users', async (req, res) => {
   res.json({ users });
 });
 
-adminRouter.get('/users/:id', async (req, res) => {
+adminRouter.get('/users/:id', requireAdmin, async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.params.id },
     select: { id: true, fullName: true, phone: true, role: true, balance: true, verified: true, blocked: true, createdAt: true },
@@ -476,7 +624,7 @@ adminRouter.get('/users/:id', async (req, res) => {
 // siyen an biwo, elatriye). Admin telechaje yo apre li resevwa yo (email/
 // WhatsApp/biwo) — kliyan ka sèlman gade yo, li pa ka modifye anyen.
 
-adminRouter.post('/sol/memberships/:id/documents', async (req, res) => {
+adminRouter.post('/sol/memberships/:id/documents', requireAdmin, async (req, res) => {
   const { title, fileData, fileMimeType, fileName } = req.body;
   if (!title?.trim() || !fileData || !fileMimeType) {
     return res.status(400).json({ error: 'Tit, dokiman an, ak kalite fichye a obligatwa.' });
@@ -505,7 +653,7 @@ adminRouter.post('/sol/memberships/:id/documents', async (req, res) => {
   res.status(201).json({ ok: true, document: { id: doc.id, title: doc.title, uploadedAt: doc.uploadedAt } });
 });
 
-adminRouter.patch('/sol/memberships/:id/form-approve', async (req, res) => {
+adminRouter.patch('/sol/memberships/:id/form-approve', requireAdmin, async (req, res) => {
   const { approved } = req.body;
   const membership = await prisma.solMembership.findUnique({ where: { id: req.params.id } });
   if (!membership) return res.status(404).json({ error: 'Adezyon sa a pa jwenn.' });
@@ -530,13 +678,13 @@ adminRouter.patch('/sol/memberships/:id/form-approve', async (req, res) => {
   res.json({ ok: true, formApproved: updated.formApproved });
 });
 
-adminRouter.patch('/users/:id/block', async (req, res) => {
+adminRouter.patch('/users/:id/block', requireAdmin, async (req, res) => {
   const { blocked } = req.body;
   const user = await prisma.user.update({ where: { id: req.params.id }, data: { blocked: !!blocked } });
   res.json({ ok: true, blocked: user.blocked });
 });
 
-adminRouter.patch('/users/:id/verify', async (req, res) => {
+adminRouter.patch('/users/:id/verify', requireAdmin, async (req, res) => {
   const { verified } = req.body;
   const user = await prisma.user.update({ where: { id: req.params.id }, data: { verified: !!verified } });
   res.json({ ok: true, verified: user.verified });
@@ -544,7 +692,7 @@ adminRouter.patch('/users/:id/verify', async (req, res) => {
 
 // Ajisteman manyèl balans — pou ka korije yon erè oswa kredite/debite san
 // yon depo. `amount` ka pozitif (kredite) oswa negatif (debite).
-adminRouter.post('/users/:id/adjust-balance', async (req, res) => {
+adminRouter.post('/users/:id/adjust-balance', requireAdmin, async (req, res) => {
   const { amount, reason } = req.body;
   const numericAmount = Number(amount);
   if (!Number.isFinite(numericAmount) || numericAmount === 0) {
@@ -570,7 +718,7 @@ adminRouter.post('/users/:id/adjust-balance', async (req, res) => {
 
 // ---- Machann yo (apèsi sèlman — jesyon konplè rete nan dashboard machann nan) ----
 
-adminRouter.get('/merchants', async (req, res) => {
+adminRouter.get('/merchants', requireAdmin, async (req, res) => {
   const merchants = await prisma.merchant.findMany({
     orderBy: { createdAt: 'desc' },
     select: { id: true, businessName: true, email: true, website: true, balance: true, createdAt: true },
@@ -580,7 +728,7 @@ adminRouter.get('/merchants', async (req, res) => {
 
 // ---- BLIC Sòl: apèsi tout gwoup yo (pou paj sipèvizyon admin) ----
 
-adminRouter.get('/sol/groups', async (req, res) => {
+adminRouter.get('/sol/groups', requireAdmin, async (req, res) => {
   const groups = await prisma.solGroup.findMany({ orderBy: [{ frequencyId: 'asc' }, { tierId: 'asc' }, { order: 'asc' }] });
   const counts = await prisma.solMembership.groupBy({
     by: ['groupId', 'status'],
@@ -603,7 +751,7 @@ adminRouter.get('/sol/groups', async (req, res) => {
 });
 
 // Detay yon gwoup pou admin: lis manm apwouve yo ak dat yo chak ap resevwa pòch yo.
-adminRouter.get('/sol/groups/:id/members', async (req, res) => {
+adminRouter.get('/sol/groups/:id/members', requireAdmin, async (req, res) => {
   const group = await prisma.solGroup.findUnique({ where: { id: req.params.id } });
   if (!group) return res.status(404).json({ error: 'Gwoup sa a pa jwenn.' });
 
@@ -628,7 +776,7 @@ adminRouter.get('/sol/groups/:id/members', async (req, res) => {
 
 // ---- Retrait ----
 
-adminRouter.get('/withdrawals/pending', async (req, res) => {
+adminRouter.get('/withdrawals/pending', requireAdminOrAgent, async (req, res) => {
   const withdrawals = await prisma.withdrawal.findMany({
     where: { status: 'pending' },
     orderBy: { createdAt: 'asc' },
@@ -637,7 +785,7 @@ adminRouter.get('/withdrawals/pending', async (req, res) => {
   res.json({ withdrawals });
 });
 
-adminRouter.post('/withdrawals/:id/confirm', async (req, res) => {
+adminRouter.post('/withdrawals/:id/confirm', requireAdminOrAgent, async (req, res) => {
   const withdrawal = await prisma.withdrawal.findUnique({ where: { id: req.params.id } });
   if (!withdrawal) return res.status(404).json({ error: 'Retrè a pa jwenn.' });
   if (withdrawal.status !== 'pending') return res.status(409).json({ error: 'Retrè sa a deja trete.' });
@@ -658,7 +806,7 @@ adminRouter.post('/withdrawals/:id/confirm', async (req, res) => {
   res.json({ ok: true });
 });
 
-adminRouter.post('/withdrawals/:id/reject', async (req, res) => {
+adminRouter.post('/withdrawals/:id/reject', requireAdminOrAgent, async (req, res) => {
   const withdrawal = await prisma.withdrawal.findUnique({ where: { id: req.params.id } });
   if (!withdrawal) return res.status(404).json({ error: 'Retrè a pa jwenn.' });
   if (withdrawal.status !== 'pending') return res.status(409).json({ error: 'Retrè sa a deja trete.' });
@@ -684,7 +832,7 @@ adminRouter.post('/withdrawals/:id/reject', async (req, res) => {
 
 // ---- Depo Objektif (apèsi sèlman — kliyan an jere pwòp objektif li) ----
 
-adminRouter.get('/goals', async (req, res) => {
+adminRouter.get('/goals', requireAdmin, async (req, res) => {
   const goals = await prisma.savingsGoal.findMany({
     orderBy: { createdAt: 'desc' },
     include: { user: { select: { fullName: true, phone: true } } },
@@ -694,7 +842,7 @@ adminRouter.get('/goals', async (req, res) => {
 
 // ---- Prè ----
 
-adminRouter.get('/loans/pending', async (req, res) => {
+adminRouter.get('/loans/pending', requireAdmin, async (req, res) => {
   const loans = await prisma.loan.findMany({
     where: { status: 'pending' },
     orderBy: { createdAt: 'asc' },
@@ -703,7 +851,7 @@ adminRouter.get('/loans/pending', async (req, res) => {
   res.json({ loans });
 });
 
-adminRouter.get('/loans', async (req, res) => {
+adminRouter.get('/loans', requireAdmin, async (req, res) => {
   const loans = await prisma.loan.findMany({
     orderBy: { createdAt: 'desc' },
     include: {
@@ -716,7 +864,7 @@ adminRouter.get('/loans', async (req, res) => {
 
 // Apwouve yon prè: kredite montan an nan balans kliyan an epi kreye tout
 // vèsman yo (LoanInstallment), tout bagay nan yon sèl transaksyon.
-adminRouter.post('/loans/:id/approve', async (req, res) => {
+adminRouter.post('/loans/:id/approve', requireAdmin, async (req, res) => {
   const loan = await prisma.loan.findUnique({ where: { id: req.params.id } });
   if (!loan) return res.status(404).json({ error: 'Prè a pa jwenn.' });
   if (loan.status !== 'pending') return res.status(409).json({ error: 'Prè sa a deja trete.' });
@@ -742,7 +890,7 @@ adminRouter.post('/loans/:id/approve', async (req, res) => {
   res.json({ ok: true });
 });
 
-adminRouter.post('/loans/:id/reject', async (req, res) => {
+adminRouter.post('/loans/:id/reject', requireAdmin, async (req, res) => {
   const loan = await prisma.loan.findUnique({ where: { id: req.params.id } });
   if (!loan) return res.status(404).json({ error: 'Prè a pa jwenn.' });
   if (loan.status !== 'pending') return res.status(409).json({ error: 'Prè sa a deja trete.' });
@@ -763,7 +911,7 @@ adminRouter.post('/loans/:id/reject', async (req, res) => {
 
 // ---- Transfè (istwa sèlman — pa bezwen apwobasyon, yo fèt otomatikman) ----
 
-adminRouter.get('/transfers', async (req, res) => {
+adminRouter.get('/transfers', requireAdmin, async (req, res) => {
   const transfers = await prisma.transfer.findMany({
     orderBy: { createdAt: 'desc' },
     take: 100,
@@ -779,7 +927,7 @@ adminRouter.get('/transfers', async (req, res) => {
 // Didit fè kaptirasyon dokiman + selfi + liveness + AML pou nou — nou stoke
 // sèlman rapò rezilta a. Admin toujou dwe konfime (mòd semi-otomatik).
 
-adminRouter.get('/kyc/didit/pending', async (req, res) => {
+adminRouter.get('/kyc/didit/pending', requireAdmin, async (req, res) => {
   const verifications = await prisma.kycVerification.findMany({
     where: { status: 'pending' },
     orderBy: { startedAt: 'asc' },
@@ -788,7 +936,7 @@ adminRouter.get('/kyc/didit/pending', async (req, res) => {
   res.json({ verifications });
 });
 
-adminRouter.get('/kyc/didit/:id', async (req, res) => {
+adminRouter.get('/kyc/didit/:id', requireAdmin, async (req, res) => {
   const verification = await prisma.kycVerification.findUnique({
     where: { id: req.params.id },
     include: { user: { select: { fullName: true, phone: true } } },
@@ -800,7 +948,7 @@ adminRouter.get('/kyc/didit/:id', async (req, res) => {
 // Redemande rezilta a DIRÈKTEMAN nan Didit — pa depann sou webhook la ki ka
 // pran reta oswa pa rive. Admin klike sou sa lè rapò a rete "Not Started"
 // alòske verifikasyon an montre yon lòt estati sou Didit.
-adminRouter.post('/kyc/didit/:id/refresh', async (req, res) => {
+adminRouter.post('/kyc/didit/:id/refresh', requireAdmin, async (req, res) => {
   const verification = await prisma.kycVerification.findUnique({ where: { id: req.params.id } });
   if (!verification) return res.status(404).json({ error: 'Verifikasyon an pa jwenn.' });
 
@@ -822,7 +970,7 @@ adminRouter.post('/kyc/didit/:id/refresh', async (req, res) => {
   res.json({ verification: updated });
 });
 
-adminRouter.post('/kyc/didit/:id/approve', async (req, res) => {
+adminRouter.post('/kyc/didit/:id/approve', requireAdmin, async (req, res) => {
   const verification = await prisma.kycVerification.findUnique({ where: { id: req.params.id } });
   if (!verification) return res.status(404).json({ error: 'Verifikasyon an pa jwenn.' });
   if (verification.status !== 'pending') return res.status(409).json({ error: 'Verifikasyon sa a deja trete.' });
@@ -844,7 +992,7 @@ adminRouter.post('/kyc/didit/:id/approve', async (req, res) => {
   res.json({ ok: true });
 });
 
-adminRouter.post('/kyc/didit/:id/reject', async (req, res) => {
+adminRouter.post('/kyc/didit/:id/reject', requireAdmin, async (req, res) => {
   const { reason } = req.body;
   if (!reason?.trim()) return res.status(400).json({ error: 'Yon rezon obligatwa pou refize.' });
 
@@ -870,7 +1018,7 @@ adminRouter.post('/kyc/didit/:id/reject', async (req, res) => {
 
 // ---- KYC: egzamine dokiman ak selfi yon kliyan voye ----
 
-adminRouter.get('/kyc/pending', async (req, res) => {
+adminRouter.get('/kyc/pending', requireAdmin, async (req, res) => {
   const submissions = await prisma.kycSubmission.findMany({
     where: { status: 'pending' },
     orderBy: { submittedAt: 'asc' },
@@ -881,7 +1029,7 @@ adminRouter.get('/kyc/pending', async (req, res) => {
 
 // Detay yon soumisyon, ak imaj yo (base64) — sèlman lè admin klike pou egzamine l,
 // pou pa chaje tout imaj yo an menm tan nan lis la.
-adminRouter.get('/kyc/:id', async (req, res) => {
+adminRouter.get('/kyc/:id', requireAdmin, async (req, res) => {
   const submission = await prisma.kycSubmission.findUnique({
     where: { id: req.params.id },
     include: { user: { select: { fullName: true, phone: true } } },
@@ -890,7 +1038,7 @@ adminRouter.get('/kyc/:id', async (req, res) => {
   res.json({ submission });
 });
 
-adminRouter.post('/kyc/:id/approve', async (req, res) => {
+adminRouter.post('/kyc/:id/approve', requireAdmin, async (req, res) => {
   const submission = await prisma.kycSubmission.findUnique({ where: { id: req.params.id } });
   if (!submission) return res.status(404).json({ error: 'Soumisyon an pa jwenn.' });
   if (submission.status !== 'pending') return res.status(409).json({ error: 'Soumisyon sa a deja trete.' });
@@ -912,7 +1060,7 @@ adminRouter.post('/kyc/:id/approve', async (req, res) => {
   res.json({ ok: true });
 });
 
-adminRouter.post('/kyc/:id/reject', async (req, res) => {
+adminRouter.post('/kyc/:id/reject', requireAdmin, async (req, res) => {
   const { reason } = req.body;
   if (!reason?.trim()) return res.status(400).json({ error: 'Yon rezon obligatwa pou refize.' });
 
@@ -936,7 +1084,7 @@ adminRouter.post('/kyc/:id/reject', async (req, res) => {
 
 // ---- BLIC Depo (pòch) — apèsi sèlman, pa bezwen apwobasyon ----
 
-adminRouter.get('/pockets', async (req, res) => {
+adminRouter.get('/pockets', requireAdmin, async (req, res) => {
   const pockets = await prisma.pocket.findMany({
     orderBy: { createdAt: 'desc' },
     include: { user: { select: { fullName: true, phone: true } } },
