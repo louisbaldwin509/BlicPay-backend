@@ -6,6 +6,8 @@ import { verifyTransactionIdInReceipt, scanReceipt } from '../utils/receiptOcr.j
 
 export const natcashManualRouter = Router();
 
+const MIN_DEPOSIT_AMOUNT = 100; // montan minimòm pou yon depo, an HTG
+
 // Kliyan an telechaje foto a — nou eskane l tousuit epi nou pwopoze yon ID
 // ak yon montan otomatikman. Sa a se yon konfò sèlman: kliyan an ka toujou
 // korije chan yo anvan li soumèt, epi verifikasyon final la (pi ba) toujou
@@ -35,6 +37,9 @@ natcashManualRouter.post('/', requireAuth, requireVerified, async (req, res) => 
 
   if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
     return res.status(400).json({ error: 'Montan an pa valab.' });
+  }
+  if (numericAmount < MIN_DEPOSIT_AMOUNT) {
+    return res.status(400).json({ error: `Montan minimòm pou yon depo se ${MIN_DEPOSIT_AMOUNT} HTG.` });
   }
   if (!transactionId || !transactionId.trim()) {
     return res.status(400).json({ error: 'ID tranzaksyon an obligatwa.' });
