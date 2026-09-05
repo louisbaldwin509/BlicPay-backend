@@ -20,6 +20,7 @@ model User {
   blocked      Boolean   @default(false)
   creditBanned Boolean   @default(false) // eskli pou tout tan nan Sòl AK Prè sèlman (apre gwo pwoblèm peman) — lòt sèvis yo (depo, retrè, transfè, BLIC Depo) rete aksesib
   pinHash      String?   // kòd PIN 4 chif la (hache, tankou modpas la) — konfime retrè + reverouye app la rapid
+  feeableBalance Int     @default(0) // konbyen lajan ELEKTWONIK (MonCash, elt.) ki toujou nan kont lan, pa ko retire — sèvi pou deside si frè retrè 1.25% la aplike, san bezwen swiv chak goud endividyèlman
   createdAt    DateTime  @default(now())
   deposits     Deposit[]
   solMemberships SolMembership[]
@@ -176,6 +177,7 @@ model Withdrawal {
   id          String    @id @default(cuid())
   userId      String
   amount      Int
+  fee         Int       @default(0) // 1.25% frè operasyon, ajoute SOU montan kliyan an mande a
   method      String    // "moncash" | "natcash" | "usdt" | "zelle" | "biwo"
   status      String    @default("pending") // "pending" | "confirmed" | "rejected"
   reference   String    @unique
