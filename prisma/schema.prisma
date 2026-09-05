@@ -22,6 +22,7 @@ model User {
   creditBanned Boolean   @default(false) // eskli pou tout tan nan Sòl AK Prè sèlman (apre gwo pwoblèm peman) — lòt sèvis yo (depo, retrè, transfè, BLIC Depo) rete aksesib
   pinHash      String?   // kòd PIN 4 chif la (hache, tankou modpas la) — konfime retrè + reverouye app la rapid
   feeableBalance Int     @default(0) // konbyen lajan ELEKTWONIK (MonCash, elt.) ki toujou nan kont lan, pa ko retire — sèvi pou deside si frè retrè 1.25% la aplike, san bezwen swiv chak goud endividyèlman
+  solPayoutBalance Int   @default(0) // konbyen lajan ki soti nan yon pòch Sòl ki toujou nan kont lan, pa ko retire — egzante de plafon retrè jou/semèn/mwa yo
   createdAt    DateTime  @default(now())
   deposits     Deposit[]
   solMemberships SolMembership[]
@@ -41,6 +42,7 @@ model Deposit {
   userId        String
   amount        Int
   method        String    // "moncash" | "natcash" | "usdt" | "zelle" | "biwo"
+  branch        String?   // sèlman pou "biwo" — ki siikisal kliyan an chwazi a
   status        String    @default("pending") // "pending" | "confirmed" | "rejected"
   reference     String    @unique
   transactionId String?   @unique // ID tranzaksyon kliyan an tape a la men (egzanp: pou NatCash) — INIK pou anpeche menm resi a itilize de fwa
@@ -50,6 +52,14 @@ model Deposit {
   confirmedAt   DateTime?
   confirmedBy   String?
   user          User      @relation(fields: [userId], references: [id])
+}
+
+// Yon siikisal (biwo) fizik BLICPay genyen. Sipè admin ka ajoute kantite li
+// vle — kliyan yo chwazi youn nan lis sa a lè yo depoze/retire "Nan biwo".
+model Branch {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
 }
 
 // Yon biznis ki vle resevwa peman via BLICPay sou pwòp sit entènèt li.
@@ -183,7 +193,9 @@ model Withdrawal {
   userId      String
   amount      Int
   fee         Int       @default(0) // 1.25% frè operasyon, ajoute SOU montan kliyan an mande a
+  cappedAmount Int      @default(0) // pòsyon montan an ki KONTE nan plafon jou/semèn/mwa a (pa gen ladan lajan ki soti nan yon pòch Sòl)
   method      String    // "moncash" | "natcash" | "usdt" | "zelle" | "biwo"
+  branch      String?   // sèlman pou "biwo" — ki siikisal kliyan an chwazi a
   status      String    @default("pending") // "pending" | "confirmed" | "rejected"
   reference   String    @unique
   createdAt   DateTime  @default(now())
