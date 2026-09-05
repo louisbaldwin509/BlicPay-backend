@@ -9,6 +9,7 @@ export const moncashRouter = Router();
 
 const CLIENT_APP_URL = process.env.CLIENT_APP_URL || 'https://blicpayht.com';
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000; // 24 èdtan
+const MIN_DEPOSIT_AMOUNT = 100; // montan minimòm pou yon depo, an HTG
 
 // Depo MonCash ki rete "pending" plis pase 24è (kliyan an abandone peman an
 // san l pa fini) yo bay "rejected" otomatikman — pa gen lajan ki janm te
@@ -35,6 +36,9 @@ moncashRouter.post('/start', requireAuth, requireVerified, async (req, res) => {
 
   if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
     return res.status(400).json({ error: 'Montan an pa valab.' });
+  }
+  if (numericAmount < MIN_DEPOSIT_AMOUNT) {
+    return res.status(400).json({ error: `Montan minimòm pou yon depo se ${MIN_DEPOSIT_AMOUNT} HTG.` });
   }
 
   const reference = generateReference('MCH-');
