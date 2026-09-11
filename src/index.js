@@ -22,6 +22,7 @@ import { merchantAuthRouter } from './routes/merchantAuth.js';
 import { merchantRouter } from './routes/merchant.js';
 import { paymentsRouter } from './routes/payments.js';
 const app = express();
+app.set('trust proxy', 1); // Railway mete app la dèyè yon pwoksi — san sa, express-rate-limit plante
 app.use(cors({ origin: (process.env.CORS_ORIGIN || '').split(',') }));
 app.use(express.json({ limit: '10mb' })); // 10mb pou akomode foto dokiman KYC yo
 app.get('/health', (req, res) => res.json({ ok: true }));
