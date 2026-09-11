@@ -314,6 +314,7 @@ model KycVerification {
   id               String    @id @default(cuid())
   userId           String
   diditSessionId   String    @unique
+  diditStatus      String?   // estati brit Didit voye (egzanp "Approved", "Declined", "In Review")
   diditReport      String?   // rapò konplè Didit voye a (JSON kòm tèks)
   status           String    @default("pending") // "pending" | "approved" | "rejected" — desizyon admin an
   rejectionReason  String?
