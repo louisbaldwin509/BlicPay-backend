@@ -71,9 +71,9 @@ kycDiditRouter.get('/status', requireAuth, async (req, res) => {
       prisma.user.findUnique({ where: { id: req.user.id }, select: { verified: true } }),
     ]);
 
-    // `verified` sou kont lan se VRE sous verite a — yon nouvo tantativ
-    // Didit (pou nenpòt rezon) pa dwe janm fè yon kont ki DEJA verifye
-    // parèt "pa verifye" ankò.
+    // "verified" a soti nan kont itilizatè a dirèkteman (badge final la, ki chanje
+    // sèlman lè yon admin apwouve KYC a) — "verification.status" a se dènye
+    // demand la, ki ka toujou "annatant" menm si yon ansyen demand te apwouve.
     res.json({ verification: latest || null, verified: !!user?.verified });
   } catch (err) {
     console.error('Didit status error:', err);
