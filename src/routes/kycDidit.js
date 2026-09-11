@@ -55,20 +55,26 @@ kycDiditRouter.post('/start', requireAuth, diditStartLimiter, async (req, res) =
 // apwouve, oswa refize pandan l nan app la).
 kycDiditRouter.get('/status', requireAuth, async (req, res) => {
   try {
-    const latest = await prisma.kycVerification.findFirst({
-      where: { userId: req.user.id },
-      orderBy: { startedAt: 'desc' },
-      select: {
-        id: true,
-        diditStatus: true,
-        status: true,
-        rejectionReason: true,
-        startedAt: true,
-        decidedAt: true,
-      },
-    });
+    const [latest, user] = await Promise.all([
+      prisma.kycVerification.findFirst({
+        where: { userId: req.user.id },
+        orderBy: { startedAt: 'desc' },
+        select: {
+          id: true,
+          diditStatus: true,
+          status: true,
+          rejectionReason: true,
+          startedAt: true,
+          decidedAt: true,
+        },
+      }),
+      prisma.user.findUnique({ where: { id: req.user.id }, select: { verified: true } }),
+    ]);
 
-    res.json({ verification: latest || null });
+    // `verified` sou kont lan se VRE sous verite a — yon nouvo tantativ
+    // Didit (pou nenpòt rezon) pa dwe janm fè yon kont ki DEJA verifye
+    // parèt "pa verifye" ankò.
+    res.json({ verification: latest || null, verified: !!user?.verified });
   } catch (err) {
     console.error('Didit status error:', err);
     res.status(500).json({ error: 'Nou pa t ka jwenn estati verifikasyon an.' });
