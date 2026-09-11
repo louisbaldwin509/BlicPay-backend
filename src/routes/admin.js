@@ -141,21 +141,48 @@ adminRouter.get('/finance/summary', requireAdmin, async (req, res) => {
   const branchByUserId = Object.fromEntries(agents.map((a) => [a.id, a.branch || 'San siikisal']));
 
   const byBranch = {};
-  const addToBranch = (branch, { volume = 0, fees = 0, count = 0 }) => {
-    if (!byBranch[branch]) byBranch[branch] = { volume: 0, fees: 0, count: 0 };
+  const allBranches = await prisma.branch.findMany({ select: { name: true } });
+  for (const b of allBranches) {
+    byBranch[b.name] = { volume: 0, fees: 0, count: 0, depositVolume: 0, withdrawalVolume: 0, depositCount: 0, withdrawalCount: 0 };
+  }
+  const addToBranch = (branch, { volume = 0, fees = 0, count = 0, depositVolume = 0, withdrawalVolume = 0, depositCount = 0, withdrawalCount = 0 }) => {
+    if (!byBranch[branch]) byBranch[branch] = { volume: 0, fees: 0, count: 0, depositVolume: 0, withdrawalVolume: 0, depositCount: 0, withdrawalCount: 0 };
     byBranch[branch].volume += volume;
     byBranch[branch].fees += fees;
     byBranch[branch].count += count;
+    byBranch[branch].depositVolume += depositVolume;
+    byBranch[branch].withdrawalVolume += withdrawalVolume;
+    byBranch[branch].depositCount += depositCount;
+    byBranch[branch].withdrawalCount += withdrawalCount;
   };
 
   for (const d of confirmedDeposits) {
     const branch = branchByUserId[d.confirmedBy];
-    if (branch) addToBranch(branch, { volume: d.amount, count: 1 });
+    if (branch) addToBranch(branch, { volume: d.amount, count: 1, depositVolume: d.amount, depositCount: 1 });
   }
   for (const w of confirmedWithdrawalsFull) {
     const branch = branchByUserId[w.confirmedBy];
-    if (branch) addToBranch(branch, { volume: w.amount, fees: w.fee, count: 1 });
+    if (branch) addToBranch(branch, { volume: w.amount, fees: w.fee, count: 1, withdrawalVolume: w.amount, withdrawalCount: 1 });
   }
+
+  // Konte konbyen ajan aktif (pa bloke) chak siikisal genyen — endepandan de
+  // si yo te konfime yon bagay pandan peryòd sa a oswa non.
+  const allAgents = await prisma.user.findMany({
+    where: { role: 'agent', blocked: false },
+    select: { branch: true },
+  });
+  const agentCountByBranch = {};
+  for (const a of allAgents) {
+    const branch = a.branch || 'San siikisal';
+    agentCountByBranch[branch] = (agentCountByBranch[branch] || 0) + 1;
+  }
+  for (const branch of Object.keys(byBranch)) {
+    byBranch[branch].agentCount = agentCountByBranch[branch] || 0;
+  }
+
+  const sortedByBranch = Object.fromEntries(
+    Object.entries(byBranch).sort((a, b) => b[1].fees - a[1].fees),
+  );
 
   res.json({
     period,
@@ -166,7 +193,7 @@ adminRouter.get('/finance/summary', requireAdmin, async (req, res) => {
       withdrawalFees,
     },
     total: solIntegrationFees + solPenalties + withdrawalFees,
-    byBranch,
+    byBranch: sortedByBranch,
   });
 });
 
