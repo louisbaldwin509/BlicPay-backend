@@ -72,10 +72,10 @@ moncashRouter.get('/callback', async (req, res) => {
     const transaction = await retrieveMoncashTransaction(transactionId);
     console.log('MonCash raw transaction response:', JSON.stringify(transaction));
 
-    // Nou pa 100% sèten fòm repons MonCash lan (dokimantasyon pa ofisyèl) —
-    // eseye plizyè fòm posib olye kraze si `reference` pa egzakteman kote
-    // nou te sipoze l ye.
-    const txReference = transaction.reference || transaction.transaction?.reference || transaction.order_id;
+    // Repons MonCash lan mete tout detay yo anba yon kle "payment" —
+    // konfime dirèkteman nan logs pwodiksyon yo (pa t evidan nan dokimantasyon
+    // ki pa ofisyèl nou te sèvi a).
+    const txReference = transaction.payment?.reference;
     if (!txReference) {
       console.error('MonCash callback: pa jwenn referans nan repons lan', transaction);
       return res.redirect(`${CLIENT_APP_URL}/depo-echwe`);
@@ -92,8 +92,8 @@ moncashRouter.get('/callback', async (req, res) => {
       return res.redirect(`${CLIENT_APP_URL}/depo-konfime`);
     }
 
-    const txCost = transaction.cost ?? transaction.transaction?.cost ?? transaction.amount;
-    const txMessage = transaction.message ?? transaction.transaction?.message ?? transaction.status;
+    const txCost = transaction.payment?.cost;
+    const txMessage = transaction.payment?.message;
     const paidCorrectAmount = Number(txCost) === deposit.amount;
     const succeeded = String(txMessage || '').toLowerCase() === 'successful';
 
