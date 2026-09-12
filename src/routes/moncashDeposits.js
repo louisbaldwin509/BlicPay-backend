@@ -70,10 +70,21 @@ moncashRouter.get('/callback', async (req, res) => {
 
   try {
     const transaction = await retrieveMoncashTransaction(transactionId);
-    const deposit = await prisma.deposit.findUnique({ where: { reference: transaction.reference } });
+    console.log('MonCash raw transaction response:', JSON.stringify(transaction));
+
+    // Nou pa 100% sèten fòm repons MonCash lan (dokimantasyon pa ofisyèl) —
+    // eseye plizyè fòm posib olye kraze si `reference` pa egzakteman kote
+    // nou te sipoze l ye.
+    const txReference = transaction.reference || transaction.transaction?.reference || transaction.order_id;
+    if (!txReference) {
+      console.error('MonCash callback: pa jwenn referans nan repons lan', transaction);
+      return res.redirect(`${CLIENT_APP_URL}/depo-echwe`);
+    }
+
+    const deposit = await prisma.deposit.findUnique({ where: { reference: txReference } });
 
     if (!deposit) {
-      console.warn('MonCash callback: depo pa jwenn pou referans', transaction.reference);
+      console.warn('MonCash callback: depo pa jwenn pou referans', txReference);
       return res.redirect(`${CLIENT_APP_URL}/depo-echwe`);
     }
     if (deposit.status !== 'pending') {
@@ -81,8 +92,10 @@ moncashRouter.get('/callback', async (req, res) => {
       return res.redirect(`${CLIENT_APP_URL}/depo-konfime`);
     }
 
-    const paidCorrectAmount = Number(transaction.cost) === deposit.amount;
-    const succeeded = String(transaction.message || '').toLowerCase() === 'successful';
+    const txCost = transaction.cost ?? transaction.transaction?.cost ?? transaction.amount;
+    const txMessage = transaction.message ?? transaction.transaction?.message ?? transaction.status;
+    const paidCorrectAmount = Number(txCost) === deposit.amount;
+    const succeeded = String(txMessage || '').toLowerCase() === 'successful';
 
     if (!succeeded || !paidCorrectAmount) {
       await prisma.deposit.update({ where: { id: deposit.id }, data: { status: 'rejected' } });
