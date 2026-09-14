@@ -36,6 +36,7 @@ model User {
   notifications     Notification[]
   kycVerifications  KycVerification[]
   verificationRequests VerificationRequest[]
+  supportMessages   SupportMessage[]
 }
 
 model Deposit {
@@ -308,6 +309,20 @@ model Notification {
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id])
+}
+
+// Yon mesaj yon kliyan voye bay ekip sipò a (soti nan "Kontakte sipò" nan
+// Paramèt). Rete "open" jiskaske yon admin reponn/regle l epi make l "closed".
+model SupportMessage {
+  id        String    @id @default(cuid())
+  userId    String
+  subject   String    // "kont" | "depo" | "sol" | "pre" | "lot"
+  message   String
+  status    String    @default("open") // "open" | "closed"
+  createdAt DateTime  @default(now())
+  closedAt  DateTime?
+  closedBy  String?
+  user      User      @relation(fields: [userId], references: [id])
 }
 
 // Yon sesyon verifikasyon KYC ki fèt via Didit (ranplase ansyen KycSubmission
