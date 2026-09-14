@@ -63,7 +63,7 @@ withdrawalsRouter.get('/fee-preview', requireAuth, async (req, res) => {
 // PLAFON JOU/SEMÈN/MWA: sèlman aplike sou pòsyon ki PA soti nan yon pòch
 // Sòl (swiv ak `solPayoutBalance`, menm mekanis ak `feeableBalance`).
 withdrawalsRouter.post('/', requireAuth, requireVerified, async (req, res) => {
-  const { amount, method, pin, branch, destinationNumber } = req.body;
+  const { amount, method, pin, branch, destinationNumber, destinationName } = req.body;
   const numericAmount = Math.round(Number(amount));
 
   if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
@@ -80,6 +80,9 @@ withdrawalsRouter.post('/', requireAuth, requireVerified, async (req, res) => {
   }
   if ((method === 'moncash' || method === 'natcash') && !destinationNumber?.trim()) {
     return res.status(400).json({ error: `Antre nimewo ${method === 'moncash' ? 'MonCash' : 'NatCash'} kote pou voye lajan an.` });
+  }
+  if ((method === 'moncash' || method === 'natcash') && !destinationName?.trim()) {
+    return res.status(400).json({ error: `Antre non ki anrejistre sou kont ${method === 'moncash' ? 'MonCash' : 'NatCash'} sa a.` });
   }
   if (!pin || !/^\d{4}$/.test(pin)) {
     return res.status(400).json({ error: 'Kòd PIN 4 chif la obligatwa.' });
@@ -160,6 +163,7 @@ withdrawalsRouter.post('/', requireAuth, requireVerified, async (req, res) => {
           method,
           branch: method === 'biwo' ? branch.trim() : null,
           destinationNumber: (method === 'moncash' || method === 'natcash') ? destinationNumber.trim() : null,
+          destinationName: (method === 'moncash' || method === 'natcash') ? destinationName.trim() : null,
           reference: generateReference('RET-'),
         },
       });
