@@ -67,7 +67,7 @@ model Deposit {
 model Branch {
   id            String   @id @default(cuid())
   name          String   @unique
-  code          String   @unique // kòd entèn otomatik, egzanp "SIK-482913"
+  code          String?  @unique // kòd entèn otomatik, egzanp "SIK-482913"
   address       String?  // ri/katye
   phone         String?  // nimewo biwo a
   managerName   String?  // non responsab siikisal la
