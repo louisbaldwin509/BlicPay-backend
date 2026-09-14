@@ -154,6 +154,39 @@ adminRouter.delete('/branches/:id', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
+// Modifye enfòmasyon yon siikisal. Si non an chanje, nou mete ajou tout
+// AJAN ki asiyen ladan l pou yo swiv nouvo non an — san sa yo ta rete
+// "kwoke" sou yon non ki pa egziste ankò.
+adminRouter.patch('/branches/:id', requireAdmin, async (req, res) => {
+  const branch = await prisma.branch.findUnique({ where: { id: req.params.id } });
+  if (!branch) return res.status(404).json({ error: 'Siikisal sa a pa jwenn.' });
+
+  const { name, address, phone, managerName, openingHours } = req.body;
+  const newName = name?.trim();
+  if (!newName) return res.status(400).json({ error: 'Non siikisal la obligatwa.' });
+
+  if (newName !== branch.name) {
+    const nameTaken = await prisma.branch.findUnique({ where: { name: newName } });
+    if (nameTaken) return res.status(409).json({ error: 'Yon lòt siikisal deja gen non sa a.' });
+  }
+
+  const [updated] = await prisma.$transaction([
+    prisma.branch.update({
+      where: { id: req.params.id },
+      data: {
+        name: newName,
+        address: address?.trim() || null,
+        phone: phone?.trim() || null,
+        managerName: managerName?.trim() || null,
+        openingHours: openingHours?.trim() || null,
+      },
+    }),
+    prisma.user.updateMany({ where: { role: 'agent', branch: branch.name }, data: { branch: newName } }),
+  ]);
+
+  res.json({ branch: updated });
+});
+
 // Kalkile revni BLICPay pou yon peryòd espesifik, detaye pa sous. Peryòd yo
 // aksepte: "day" (jodi a), "week" (semèn nan, kòmanse Lendi), "month" (mwa sa
 // a), "year" (ane sa a), "all" (tout tan). N ap ajoute lòt sous revni (egzanp
