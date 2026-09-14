@@ -121,6 +121,39 @@ adminRouter.get('/agents', requireAdmin, async (req, res) => {
   res.json({ agents });
 });
 
+// Efase yon kont ajan nèt. Sipoze ajan an poko janm fè okenn depo/retrè/
+// tranzaksyon pèsonèl (nòmalman se ka a — kont ajan pa fèt pou itilize
+// tankou yon kont kliyan). Si baz done a refize efase l poutèt yon rapò ki
+// egziste, nou di admin an bloke l pito olye efase l.
+adminRouter.delete('/agents/:id', requireAdmin, async (req, res) => {
+  const agent = await prisma.user.findUnique({ where: { id: req.params.id } });
+  if (!agent || agent.role !== 'agent') {
+    return res.status(404).json({ error: 'Ajan sa a pa jwenn.' });
+  }
+  try {
+    await prisma.user.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Delete agent error:', err);
+    res.status(409).json({ error: 'Nou pa t ka efase ajan sa a — li gen istorik ki mare ak li. Bloke l pito.' });
+  }
+});
+
+// Efase yon siikisal. Nou refize si gen ajan ki toujou asiyen ladan l, pou
+// pa kite yo san yon biwo valab.
+adminRouter.delete('/branches/:id', requireAdmin, async (req, res) => {
+  const branch = await prisma.branch.findUnique({ where: { id: req.params.id } });
+  if (!branch) return res.status(404).json({ error: 'Siikisal sa a pa jwenn.' });
+
+  const agentCount = await prisma.user.count({ where: { role: 'agent', branch: branch.name } });
+  if (agentCount > 0) {
+    return res.status(409).json({ error: `Gen ${agentCount} ajan ki toujou nan siikisal sa a — deplase oswa efase yo anvan.` });
+  }
+
+  await prisma.branch.delete({ where: { id: req.params.id } });
+  res.json({ ok: true });
+});
+
 // Kalkile revni BLICPay pou yon peryòd espesifik, detaye pa sous. Peryòd yo
 // aksepte: "day" (jodi a), "week" (semèn nan, kòmanse Lendi), "month" (mwa sa
 // a), "year" (ane sa a), "all" (tout tan). N ap ajoute lòt sous revni (egzanp
