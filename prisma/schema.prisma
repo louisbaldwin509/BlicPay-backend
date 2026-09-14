@@ -197,6 +197,7 @@ model Withdrawal {
   method      String    // "moncash" | "natcash" | "usdt" | "zelle" | "biwo"
   branch      String?   // sèlman pou "biwo" — ki siikisal kliyan an chwazi a
   destinationNumber String? // sèlman pou "moncash"/"natcash" — nimewo kote pou voye lajan an
+  destinationName String? // non ki anrejistre sou kont MonCash/NatCash sa a — pou ajan an verifye idantite anvan l voye lajan
   status      String    @default("pending") // "pending" | "confirmed" | "rejected"
   reference   String    @unique
   createdAt   DateTime  @default(now())
