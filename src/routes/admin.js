@@ -10,6 +10,26 @@ export const adminRouter = Router();
 
 adminRouter.use(requireAuth);
 
+// Kreye yon kòd entèn inik, egzanp "SIK-482913" pou yon siikisal oswa
+// "AJT-738204" pou yon ajan — menm mekanis ak generateUniqueClientId nan
+// auth.js (prefiks diferan, tès inisite sou tab diferan).
+async function generateUniqueBranchCode() {
+  for (let i = 0; i < 5; i++) {
+    const candidate = 'SIK-' + Math.floor(100000 + Math.random() * 900000);
+    const existing = await prisma.branch.findUnique({ where: { code: candidate } });
+    if (!existing) return candidate;
+  }
+  throw new Error('Nou pa t ka jenere yon kòd siikisal inik.');
+}
+async function generateUniqueAgentCode() {
+  for (let i = 0; i < 5; i++) {
+    const candidate = 'AJT-' + Math.floor(100000 + Math.random() * 900000);
+    const existing = await prisma.user.findUnique({ where: { employeeCode: candidate } });
+    if (!existing) return candidate;
+  }
+  throw new Error('Nou pa t ka jenere yon kòd ajan inik.');
+}
+
 // Kalkile revni BLICPay pou yon peryòd espesifik, detaye pa sous. Peryòd yo
 // aksepte: "day" (jodi a), "month" (mwa sa a), "year" (ane sa a), "all"
 // (tout tan). N ap ajoute lòt sous revni (egzanp enterè Prè) lè fonksyonalite
@@ -20,13 +40,23 @@ adminRouter.use(requireAuth);
 // KYC, itilizatè, oswa rapò finansye — sa rete pou sipè admin sèlman.
 // Sipè admin ka ajoute yon nouvo siikisal, kantite li vle.
 adminRouter.post('/branches', requireAdmin, async (req, res) => {
-  const { name } = req.body;
+  const { name, address, phone, managerName, openingHours } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Non siikisal la obligatwa.' });
 
   const existing = await prisma.branch.findUnique({ where: { name: name.trim() } });
   if (existing) return res.status(409).json({ error: 'Yon siikisal deja gen non sa a.' });
 
-  const branch = await prisma.branch.create({ data: { name: name.trim() } });
+  const code = await generateUniqueBranchCode();
+  const branch = await prisma.branch.create({
+    data: {
+      name: name.trim(),
+      code,
+      address: address?.trim() || null,
+      phone: phone?.trim() || null,
+      managerName: managerName?.trim() || null,
+      openingHours: openingHours?.trim() || null,
+    },
+  });
   res.status(201).json({ branch });
 });
 
@@ -37,7 +67,7 @@ adminRouter.get('/branches', requireAdmin, async (req, res) => {
 });
 
 adminRouter.post('/agents', requireAdmin, async (req, res) => {
-  const { fullName, phone, password, branch } = req.body;
+  const { fullName, phone, password, branch, email, idNumber, hireDate, photoImage, photoMimeType } = req.body;
   if (!fullName?.trim() || !phone?.trim() || !password || !branch?.trim()) {
     return res.status(400).json({ error: 'Non, telefòn, modpas, ak biwo obligatwa.' });
   }
@@ -49,12 +79,17 @@ adminRouter.post('/agents', requireAdmin, async (req, res) => {
   if (existing) {
     return res.status(409).json({ error: 'Yon kont deja itilize telefòn sa a.' });
   }
+  if (email?.trim()) {
+    const emailTaken = await prisma.user.findUnique({ where: { email: email.trim() } });
+    if (emailTaken) return res.status(409).json({ error: 'Yon kont deja itilize imèl sa a.' });
+  }
   const branchExists = await prisma.branch.findUnique({ where: { name: branch.trim() } });
   if (!branchExists) {
     return res.status(400).json({ error: 'Siikisal sa a pa egziste — kreye l anvan.' });
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
+  const employeeCode = await generateUniqueAgentCode();
   const agent = await prisma.user.create({
     data: {
       fullName: fullName.trim(),
@@ -63,8 +98,14 @@ adminRouter.post('/agents', requireAdmin, async (req, res) => {
       role: 'agent',
       branch: branch.trim(),
       verified: true,
+      employeeCode,
+      email: email?.trim() || null,
+      idNumber: idNumber?.trim() || null,
+      hireDate: hireDate ? new Date(hireDate) : null,
+      photoImage: photoImage || null,
+      photoMimeType: photoMimeType || null,
     },
-    select: { id: true, fullName: true, phone: true, branch: true, createdAt: true },
+    select: { id: true, fullName: true, phone: true, branch: true, createdAt: true, employeeCode: true, email: true, idNumber: true, hireDate: true, photoImage: true, photoMimeType: true },
   });
 
   res.status(201).json({ agent });
@@ -74,7 +115,7 @@ adminRouter.post('/agents', requireAdmin, async (req, res) => {
 adminRouter.get('/agents', requireAdmin, async (req, res) => {
   const agents = await prisma.user.findMany({
     where: { role: 'agent' },
-    select: { id: true, fullName: true, phone: true, branch: true, createdAt: true, blocked: true },
+    select: { id: true, fullName: true, phone: true, branch: true, createdAt: true, blocked: true, employeeCode: true, email: true, idNumber: true, hireDate: true, photoImage: true, photoMimeType: true },
     orderBy: { branch: 'asc' },
   });
   res.json({ agents });
