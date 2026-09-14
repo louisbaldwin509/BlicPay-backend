@@ -80,12 +80,22 @@ adminRouter.get('/agents', requireAdmin, async (req, res) => {
   res.json({ agents });
 });
 
+// Kalkile revni BLICPay pou yon peryòd espesifik, detaye pa sous. Peryòd yo
+// aksepte: "day" (jodi a), "week" (semèn nan, kòmanse Lendi), "month" (mwa sa
+// a), "year" (ane sa a), "all" (tout tan). N ap ajoute lòt sous revni (egzanp
+// enterè Prè) lè fonksyonalite sa yo vin aktif. Souvni: frè retrè yo sèlman
+// konte lè retrè a "confirmed" — sipoze si yon retrè "rejected" ranbouse
+// kliyan an nèt (montan + frè).
 adminRouter.get('/finance/summary', requireAdmin, async (req, res) => {
   const period = req.query.period || 'month';
   const now = new Date();
   let start;
   if (period === 'day') {
     start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  } else if (period === 'week') {
+    const day = now.getDay(); // 0 = Dimanch
+    const diffToMonday = day === 0 ? 6 : day - 1;
+    start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
   } else if (period === 'year') {
     start = new Date(now.getFullYear(), 0, 1);
   } else if (period === 'all') {
@@ -116,16 +126,37 @@ adminRouter.get('/finance/summary', requireAdmin, async (req, res) => {
   const solPenalties = paidPenalties._sum.penaltyAmount || 0;
   const withdrawalFees = confirmedWithdrawals._sum.fee || 0;
 
+  // Volim total platfòm nan (pa jis sa ajan konfime an biwo) — sa a ba nou
+  // vrè volim brit la, ki gen ladan depo MonCash otomatik yo tou.
+  const [totalDepositAgg, totalWithdrawalAgg] = await Promise.all([
+    prisma.deposit.aggregate({ where: { status: 'confirmed', confirmedAt: { gte: start } }, _sum: { amount: true } }),
+    prisma.withdrawal.aggregate({ where: { status: 'confirmed', createdAt: { gte: start } }, _sum: { amount: true } }),
+  ]);
+  const totalDepositVolume = totalDepositAgg._sum.amount || 0;
+  const totalWithdrawalVolume = totalWithdrawalAgg._sum.amount || 0;
+
+  // Kantite kliyan INIK platfòm nan sèvi pandan peryòd la — tout depo/retrè
+  // konfime, ke se yon ajan ki konfime l oswa li otomatik (MonCash).
+  const [allConfirmedDepositUsers, allConfirmedWithdrawalUsers] = await Promise.all([
+    prisma.deposit.findMany({ where: { status: 'confirmed', confirmedAt: { gte: start } }, select: { userId: true } }),
+    prisma.withdrawal.findMany({ where: { status: 'confirmed', createdAt: { gte: start } }, select: { userId: true } }),
+  ]);
+  const totalUniqueClients = new Set([
+    ...allConfirmedDepositUsers.map((d) => d.userId),
+    ...allConfirmedWithdrawalUsers.map((w) => w.userId),
+  ]).size;
+
   // Detay pa siikisal: pou chak depo/retrè konfime pandan peryòd la, jwenn
-  // biwo ajan ki konfime l la te travay ladan l (gras a `confirmedBy`).
+  // biwo ajan ki konfime l la te travay ladan l (gras a `confirmedBy`), PLIS
+  // konbyen KLIYAN INIK (pa kont tranzaksyon) chak biwo sèvi pandan peryòd la.
   const [confirmedDeposits, confirmedWithdrawalsFull] = await Promise.all([
     prisma.deposit.findMany({
       where: { status: 'confirmed', confirmedAt: { gte: start }, confirmedBy: { not: null } },
-      select: { amount: true, confirmedBy: true },
+      select: { amount: true, confirmedBy: true, userId: true },
     }),
     prisma.withdrawal.findMany({
       where: { status: 'confirmed', createdAt: { gte: start }, confirmedBy: { not: null } },
-      select: { amount: true, fee: true, confirmedBy: true },
+      select: { amount: true, fee: true, confirmedBy: true, userId: true },
     }),
   ]);
 
@@ -141,12 +172,15 @@ adminRouter.get('/finance/summary', requireAdmin, async (req, res) => {
   const branchByUserId = Object.fromEntries(agents.map((a) => [a.id, a.branch || 'San siikisal']));
 
   const byBranch = {};
+  const clientSetByBranch = {};
   const allBranches = await prisma.branch.findMany({ select: { name: true } });
   for (const b of allBranches) {
     byBranch[b.name] = { volume: 0, fees: 0, count: 0, depositVolume: 0, withdrawalVolume: 0, depositCount: 0, withdrawalCount: 0 };
+    clientSetByBranch[b.name] = new Set();
   }
   const addToBranch = (branch, { volume = 0, fees = 0, count = 0, depositVolume = 0, withdrawalVolume = 0, depositCount = 0, withdrawalCount = 0 }) => {
     if (!byBranch[branch]) byBranch[branch] = { volume: 0, fees: 0, count: 0, depositVolume: 0, withdrawalVolume: 0, depositCount: 0, withdrawalCount: 0 };
+    if (!clientSetByBranch[branch]) clientSetByBranch[branch] = new Set();
     byBranch[branch].volume += volume;
     byBranch[branch].fees += fees;
     byBranch[branch].count += count;
@@ -158,11 +192,20 @@ adminRouter.get('/finance/summary', requireAdmin, async (req, res) => {
 
   for (const d of confirmedDeposits) {
     const branch = branchByUserId[d.confirmedBy];
-    if (branch) addToBranch(branch, { volume: d.amount, count: 1, depositVolume: d.amount, depositCount: 1 });
+    if (branch) {
+      addToBranch(branch, { volume: d.amount, count: 1, depositVolume: d.amount, depositCount: 1 });
+      clientSetByBranch[branch].add(d.userId);
+    }
   }
   for (const w of confirmedWithdrawalsFull) {
     const branch = branchByUserId[w.confirmedBy];
-    if (branch) addToBranch(branch, { volume: w.amount, fees: w.fee, count: 1, withdrawalVolume: w.amount, withdrawalCount: 1 });
+    if (branch) {
+      addToBranch(branch, { volume: w.amount, fees: w.fee, count: 1, withdrawalVolume: w.amount, withdrawalCount: 1 });
+      clientSetByBranch[branch].add(w.userId);
+    }
+  }
+  for (const branch of Object.keys(byBranch)) {
+    byBranch[branch].uniqueClients = clientSetByBranch[branch] ? clientSetByBranch[branch].size : 0;
   }
 
   // Konte konbyen ajan aktif (pa bloke) chak siikisal genyen — endepandan de
@@ -184,6 +227,61 @@ adminRouter.get('/finance/summary', requireAdmin, async (req, res) => {
     Object.entries(byBranch).sort((a, b) => b[1].fees - a[1].fees),
   );
 
+  // Volim jou pa jou (depo/retrè konfime), pou grafik la — limite a peryòd
+  // la si li kout, oswa 30 dènye jou yo si peryòd la pi long pase sa.
+  const chartStart = period === 'all' || period === 'year'
+    ? new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000)
+    : start;
+  const [chartDeposits, chartWithdrawals] = await Promise.all([
+    prisma.deposit.findMany({
+      where: { status: 'confirmed', confirmedAt: { gte: chartStart } },
+      select: { amount: true, confirmedAt: true },
+    }),
+    prisma.withdrawal.findMany({
+      where: { status: 'confirmed', createdAt: { gte: chartStart } },
+      select: { amount: true, createdAt: true },
+    }),
+  ]);
+  const dayKey = (d) => new Date(d).toISOString().slice(0, 10);
+  const dailyMap = {};
+  for (const d of chartDeposits) {
+    const k = dayKey(d.confirmedAt);
+    if (!dailyMap[k]) dailyMap[k] = { date: k, deposits: 0, withdrawals: 0 };
+    dailyMap[k].deposits += d.amount;
+  }
+  for (const w of chartWithdrawals) {
+    const k = dayKey(w.createdAt);
+    if (!dailyMap[k]) dailyMap[k] = { date: k, deposits: 0, withdrawals: 0 };
+    dailyMap[k].withdrawals += w.amount;
+  }
+  const dailyVolume = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+
+  // Pwodwi 100% dijital — pa gen siikisal ki enplike, se lajan kliyan an
+  // k ap deplase anndan pwòp kont li.
+  const [pocketAgg, activeGoalsAgg, completedGoalsCount, activeLoansAgg] = await Promise.all([
+    prisma.pocket.aggregate({ _sum: { balance: true }, _count: true }),
+    prisma.savingsGoal.aggregate({ where: { status: 'active' }, _sum: { saved: true }, _count: true }),
+    prisma.savingsGoal.count({ where: { status: 'completed' } }),
+    prisma.loan.aggregate({ where: { status: 'active' }, _sum: { totalDue: true, amount: true }, _count: true }),
+  ]);
+
+  // Volim pa gwoup Sòl: potansyèl (montan × kantite manm maks) vs sa ki
+  // deja kolekte (kotizasyon peye), pou gwoup ki gen manm apwouve.
+  const solGroups = await prisma.solGroup.findMany({
+    where: { memberships: { some: { status: 'approved' } } },
+    select: {
+      id: true, name: true, tier: true, frequency: true, amount: true, maxMembers: true,
+      memberships: { where: { status: 'approved' }, select: { id: true } },
+      contributions: { where: { status: 'paid' }, select: { amount: true, penaltyAmount: true } },
+    },
+  });
+  const solGroupVolumes = solGroups.map((g) => ({
+    name: g.name, tier: g.tier, frequency: g.frequency,
+    memberCount: g.memberships.length, maxMembers: g.maxMembers,
+    potential: g.amount * g.maxMembers,
+    collected: g.contributions.reduce((sum, c) => sum + c.amount, 0),
+  })).sort((a, b) => b.potential - a.potential);
+
   res.json({
     period,
     since: start,
@@ -193,7 +291,17 @@ adminRouter.get('/finance/summary', requireAdmin, async (req, res) => {
       withdrawalFees,
     },
     total: solIntegrationFees + solPenalties + withdrawalFees,
+    totalDepositVolume,
+    totalWithdrawalVolume,
+    totalUniqueClients,
     byBranch: sortedByBranch,
+    dailyVolume,
+    digitalProducts: {
+      pockets: { totalBalance: pocketAgg._sum.balance || 0, activeCount: pocketAgg._count || 0 },
+      goals: { totalSaved: activeGoalsAgg._sum.saved || 0, activeCount: activeGoalsAgg._count || 0, completedCount: completedGoalsCount },
+      loans: { totalOutstanding: activeLoansAgg._sum.totalDue || 0, totalDisbursed: activeLoansAgg._sum.amount || 0, activeCount: activeLoansAgg._count || 0 },
+    },
+    solGroups: solGroupVolumes,
   });
 });
 
@@ -855,29 +963,21 @@ adminRouter.get('/withdrawals/pending', requireAdminOrAgent, async (req, res) =>
       ...(agentBranch ? { OR: [{ method: { not: 'biwo' } }, { branch: agentBranch }] } : {}),
     },
     orderBy: { createdAt: 'asc' },
-    include: { user: { select: { fullName: true, phone: true, clientId: true } } },
+    include: { user: { select: { fullName: true, phone: true } } },
   });
   res.json({ withdrawals });
 });
 
 adminRouter.post('/withdrawals/:id/confirm', requireAdminOrAgent, async (req, res) => {
-  const { proofImage, proofMimeType } = req.body;
   const withdrawal = await prisma.withdrawal.findUnique({ where: { id: req.params.id } });
   if (!withdrawal) return res.status(404).json({ error: 'Retrè a pa jwenn.' });
   if (withdrawal.status !== 'pending') return res.status(409).json({ error: 'Retrè sa a deja trete.' });
 
   // Balans lan te deja retire lè demand la te fèt — konfimasyon an jis mache
-  // dosye a kòm trete, li pa touche balans lan ankò. Prèv la (kapti resi
-  // MonCash/NatCash, oswa foto ajan an ak kliyan an nan biwo) fakiltatif —
-  // yon admin/ajan ka toujou konfime san l menm si li pa gen foto.
+  // dosye a kòm trete, li pa touche balans lan ankò.
   await prisma.withdrawal.update({
     where: { id: withdrawal.id },
-    data: {
-      status: 'confirmed',
-      confirmedAt: new Date(),
-      confirmedBy: req.user.id,
-      ...(proofImage ? { proofImage, proofMimeType } : {}),
-    },
+    data: { status: 'confirmed', confirmedAt: new Date(), confirmedBy: req.user.id },
   });
 
   await notifyUser(withdrawal.userId, {
