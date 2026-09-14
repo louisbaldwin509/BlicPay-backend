@@ -855,21 +855,29 @@ adminRouter.get('/withdrawals/pending', requireAdminOrAgent, async (req, res) =>
       ...(agentBranch ? { OR: [{ method: { not: 'biwo' } }, { branch: agentBranch }] } : {}),
     },
     orderBy: { createdAt: 'asc' },
-    include: { user: { select: { fullName: true, phone: true } } },
+    include: { user: { select: { fullName: true, phone: true, clientId: true } } },
   });
   res.json({ withdrawals });
 });
 
 adminRouter.post('/withdrawals/:id/confirm', requireAdminOrAgent, async (req, res) => {
+  const { proofImage, proofMimeType } = req.body;
   const withdrawal = await prisma.withdrawal.findUnique({ where: { id: req.params.id } });
   if (!withdrawal) return res.status(404).json({ error: 'Retrè a pa jwenn.' });
   if (withdrawal.status !== 'pending') return res.status(409).json({ error: 'Retrè sa a deja trete.' });
 
   // Balans lan te deja retire lè demand la te fèt — konfimasyon an jis mache
-  // dosye a kòm trete, li pa touche balans lan ankò.
+  // dosye a kòm trete, li pa touche balans lan ankò. Prèv la (kapti resi
+  // MonCash/NatCash, oswa foto ajan an ak kliyan an nan biwo) fakiltatif —
+  // yon admin/ajan ka toujou konfime san l menm si li pa gen foto.
   await prisma.withdrawal.update({
     where: { id: withdrawal.id },
-    data: { status: 'confirmed', confirmedAt: new Date(), confirmedBy: req.user.id },
+    data: {
+      status: 'confirmed',
+      confirmedAt: new Date(),
+      confirmedBy: req.user.id,
+      ...(proofImage ? { proofImage, proofMimeType } : {}),
+    },
   });
 
   await notifyUser(withdrawal.userId, {
