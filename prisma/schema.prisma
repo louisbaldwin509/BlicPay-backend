@@ -196,11 +196,14 @@ model Withdrawal {
   cappedAmount Int      @default(0) // pòsyon montan an ki KONTE nan plafon jou/semèn/mwa a (pa gen ladan lajan ki soti nan yon pòch Sòl)
   method      String    // "moncash" | "natcash" | "usdt" | "zelle" | "biwo"
   branch      String?   // sèlman pou "biwo" — ki siikisal kliyan an chwazi a
+  destinationNumber String? // sèlman pou "moncash"/"natcash" — nimewo kote pou voye lajan an
   status      String    @default("pending") // "pending" | "confirmed" | "rejected"
   reference   String    @unique
   createdAt   DateTime  @default(now())
   confirmedAt DateTime?
   confirmedBy String?
+  proofImage    String?   // kapti/resi admin/ajan an telechaje kòm prèv li voye lajan an, kòm base64
+  proofMimeType String?
   user        User      @relation(fields: [userId], references: [id])
 }
 
@@ -314,7 +317,7 @@ model KycVerification {
   id               String    @id @default(cuid())
   userId           String
   diditSessionId   String    @unique
-  diditStatus      String?   // estati brit Didit voye (egzanp "Approved", "Declined", "In Review")
+  diditStatus      String?   // "Not Started" | "In Progress" | "Approved" | "Declined" | "In Review"
   diditReport      String?   // rapò konplè Didit voye a (JSON kòm tèks)
   status           String    @default("pending") // "pending" | "approved" | "rejected" — desizyon admin an
   rejectionReason  String?
