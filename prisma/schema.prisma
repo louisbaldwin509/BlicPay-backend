@@ -21,6 +21,12 @@ model User {
   blocked      Boolean   @default(false)
   creditBanned Boolean   @default(false) // eskli pou tout tan nan Sòl AK Prè sèlman (apre gwo pwoblèm peman) — lòt sèvis yo (depo, retrè, transfè, BLIC Depo) rete aksesib
   pinHash      String?   // kòd PIN 4 chif la (hache, tankou modpas la) — konfime retrè + reverouye app la rapid
+  employeeCode String?   @unique // kòd entèn otomatik pou AJAN sèlman, egzanp "AJT-738204"
+  email        String?   @unique // sèlman pou ajan (kontak/rekiperasyon kont)
+  idNumber     String?   // nimewo pyès idantite ajan an (CIN)
+  hireDate     DateTime? // dat ajan an anboche
+  photoImage   String?   // foto pwofil ajan an, kòm base64
+  photoMimeType String?
   feeableBalance Int     @default(0) // konbyen lajan ELEKTWONIK (MonCash, elt.) ki toujou nan kont lan, pa ko retire — sèvi pou deside si frè retrè 1.25% la aplike, san bezwen swiv chak goud endividyèlman
   solPayoutBalance Int   @default(0) // konbyen lajan ki soti nan yon pòch Sòl ki toujou nan kont lan, pa ko retire — egzante de plafon retrè jou/semèn/mwa yo
   createdAt    DateTime  @default(now())
@@ -59,9 +65,14 @@ model Deposit {
 // Yon siikisal (biwo) fizik BLICPay genyen. Sipè admin ka ajoute kantite li
 // vle — kliyan yo chwazi youn nan lis sa a lè yo depoze/retire "Nan biwo".
 model Branch {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  createdAt DateTime @default(now())
+  id            String   @id @default(cuid())
+  name          String   @unique
+  code          String   @unique // kòd entèn otomatik, egzanp "SIK-482913"
+  address       String?  // ri/katye
+  phone         String?  // nimewo biwo a
+  managerName   String?  // non responsab siikisal la
+  openingHours  String?  // egzanp "Lendi-Vandredi 8h-16h"
+  createdAt     DateTime @default(now())
 }
 
 // Yon biznis ki vle resevwa peman via BLICPay sou pwòp sit entènèt li.
