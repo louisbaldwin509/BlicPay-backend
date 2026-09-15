@@ -249,7 +249,7 @@ adminRouter.patch('/branches/:id', requireAdmin, async (req, res) => {
 // enterè Prè) lè fonksyonalite sa yo vin aktif. Souvni: frè retrè yo sèlman
 // konte lè retrè a "confirmed" — sipoze si yon retrè "rejected" ranbouse
 // kliyan an nèt (montan + frè).
-adminRouter.get('/finance/summary', requireAdmin, async (req, res) => {
+adminRouter.get('/finance/summary', requireAdminOrAgent, async (req, res) => {
   const period = req.query.period || 'month';
   const now = new Date();
   let start;
@@ -444,6 +444,25 @@ adminRouter.get('/finance/summary', requireAdmin, async (req, res) => {
     potential: g.amount * g.maxMembers,
     collected: g.contributions.reduce((sum, c) => sum + c.amount, 0),
   })).sort((a, b) => b.potential - a.potential);
+
+  // Yon AJAN sèlman gen dwa wè volim PWÒP SIIKISAL LI — pa okenn lòt siikisal,
+  // pa detay revni entèn, ni pwodwi dijital/gwoup Sòl (sa yo se pou sipè admin).
+  if (req.user.role === 'agent') {
+    const agent = await prisma.user.findUnique({ where: { id: req.user.id }, select: { branch: true } });
+    const myBranch = agent?.branch || null;
+    const myStats = (myBranch && sortedByBranch[myBranch]) || {
+      volume: 0, fees: 0, count: 0, depositVolume: 0, withdrawalVolume: 0, depositCount: 0, withdrawalCount: 0, agentCount: 0, uniqueClients: 0,
+    };
+    return res.json({
+      period,
+      since: start,
+      myBranch,
+      totalDepositVolume: myStats.depositVolume,
+      totalWithdrawalVolume: myStats.withdrawalVolume,
+      totalUniqueClients: myStats.uniqueClients,
+      byBranch: myBranch ? { [myBranch]: myStats } : {},
+    });
+  }
 
   res.json({
     period,
@@ -1065,8 +1084,19 @@ adminRouter.get('/merchants', requireAdmin, async (req, res) => {
 
 // ---- BLIC Sòl: apèsi tout gwoup yo (pou paj sipèvizyon admin) ----
 
-adminRouter.get('/sol/groups', requireAdmin, async (req, res) => {
-  const groups = await prisma.solGroup.findMany({ orderBy: [{ frequencyId: 'asc' }, { tierId: 'asc' }, { order: 'asc' }] });
+adminRouter.get('/sol/groups', requireAdminOrAgent, async (req, res) => {
+  const allGroups = await prisma.solGroup.findMany();
+  // Klase FREKANS ak NIVO nan lòd ki gen sans (pa alfabetik — "Basic,
+  // Premium, Standard" pa gen sans, ni "kenzenn, mwa, semenn").
+  const freqOrder = { semenn: 0, kenzenn: 1, mwa: 2 };
+  const tierOrder = { basic: 0, standard: 1, premium: 2 };
+  const groups = allGroups.sort((a, b) => {
+    const f = (freqOrder[a.frequencyId] ?? 9) - (freqOrder[b.frequencyId] ?? 9);
+    if (f !== 0) return f;
+    const t = (tierOrder[a.tierId] ?? 9) - (tierOrder[b.tierId] ?? 9);
+    if (t !== 0) return t;
+    return a.order - b.order;
+  });
   const counts = await prisma.solMembership.groupBy({
     by: ['groupId', 'status'],
     _count: true,
@@ -1088,7 +1118,7 @@ adminRouter.get('/sol/groups', requireAdmin, async (req, res) => {
 });
 
 // Detay yon gwoup pou admin: lis manm apwouve yo ak dat yo chak ap resevwa pòch yo.
-adminRouter.get('/sol/groups/:id/members', requireAdmin, async (req, res) => {
+adminRouter.get('/sol/groups/:id/members', requireAdminOrAgent, async (req, res) => {
   const group = await prisma.solGroup.findUnique({ where: { id: req.params.id } });
   if (!group) return res.status(404).json({ error: 'Gwoup sa a pa jwenn.' });
 
@@ -1197,7 +1227,7 @@ adminRouter.get('/loans/pending', requireAdmin, async (req, res) => {
   res.json({ loans });
 });
 
-adminRouter.get('/loans', requireAdmin, async (req, res) => {
+adminRouter.get('/loans', requireAdminOrAgent, async (req, res) => {
   const loans = await prisma.loan.findMany({
     orderBy: { createdAt: 'desc' },
     include: {
