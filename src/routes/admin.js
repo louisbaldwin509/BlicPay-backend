@@ -139,6 +139,62 @@ adminRouter.delete('/agents/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// Modifye enfòmasyon yon ajan. Modpas la OPSYONÈL isit la — si li vid,
+// ansyen modpas la rete. Telefòn/imèl verifye pou yo pa antre an konfli
+// ak yon LÒT kont (pa avèk pwòp kont ajan an k ap modifye a).
+adminRouter.patch('/agents/:id', requireAdmin, async (req, res) => {
+  const agent = await prisma.user.findUnique({ where: { id: req.params.id } });
+  if (!agent || agent.role !== 'agent') {
+    return res.status(404).json({ error: 'Ajan sa a pa jwenn.' });
+  }
+
+  const { fullName, phone, password, branch, email, idNumber, hireDate, photoImage, photoMimeType } = req.body;
+  if (!fullName?.trim() || !phone?.trim() || !branch?.trim()) {
+    return res.status(400).json({ error: 'Non, telefòn, ak biwo obligatwa.' });
+  }
+  if (password && password.length < 6) {
+    return res.status(400).json({ error: 'Modpas la dwe gen omwen 6 karaktè.' });
+  }
+
+  const phoneTaken = await prisma.user.findUnique({ where: { phone: phone.trim() } });
+  if (phoneTaken && phoneTaken.id !== agent.id) {
+    return res.status(409).json({ error: 'Yon lòt kont deja itilize telefòn sa a.' });
+  }
+  if (email?.trim()) {
+    const emailTaken = await prisma.user.findUnique({ where: { email: email.trim() } });
+    if (emailTaken && emailTaken.id !== agent.id) {
+      return res.status(409).json({ error: 'Yon lòt kont deja itilize imèl sa a.' });
+    }
+  }
+  const branchExists = await prisma.branch.findUnique({ where: { name: branch.trim() } });
+  if (!branchExists) {
+    return res.status(400).json({ error: 'Siikisal sa a pa egziste.' });
+  }
+
+  const data = {
+    fullName: fullName.trim(),
+    phone: phone.trim(),
+    branch: branch.trim(),
+    email: email?.trim() || null,
+    idNumber: idNumber?.trim() || null,
+    hireDate: hireDate ? new Date(hireDate) : null,
+  };
+  if (password?.trim()) {
+    data.passwordHash = await bcrypt.hash(password.trim(), 10);
+  }
+  if (photoImage !== undefined) {
+    data.photoImage = photoImage || null;
+    data.photoMimeType = photoMimeType || null;
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: req.params.id },
+    data,
+    select: { id: true, fullName: true, phone: true, branch: true, createdAt: true, blocked: true, employeeCode: true, email: true, idNumber: true, hireDate: true, photoImage: true, photoMimeType: true },
+  });
+  res.json({ agent: updated });
+});
+
 // Efase yon siikisal. Nou refize si gen ajan ki toujou asiyen ladan l, pou
 // pa kite yo san yon biwo valab.
 adminRouter.delete('/branches/:id', requireAdmin, async (req, res) => {
