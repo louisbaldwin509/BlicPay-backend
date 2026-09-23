@@ -30,6 +30,22 @@ async function generateUniqueAgentCode() {
   throw new Error('Nou pa t ka jenere yon kòd ajan inik.');
 }
 
+// Verifye yon AJAN gen dwa aji sou (konfime/rejte) yon depo oswa retrè
+// espesifik. Filt lis yo (deposits/pending, withdrawals/pending) deja kache
+// sa yo pa dwe wè, men filtraj lis pa anpeche yon apèl dirèk a wout
+// konfimasyon an — sa a se vrè baryè sekirite a. Sipè admin pa gen
+// restriksyon. Metòd ki pa "biwo" (NatCash, elt.) pa mare ak yon kote
+// fizik, kidonk tout ajan ka trete yo.
+async function checkAgentBranchAccess(req, record) {
+  if (req.user.role !== 'agent') return null;
+  if (record.method !== 'biwo') return null;
+  const agent = await prisma.user.findUnique({ where: { id: req.user.id }, select: { branch: true } });
+  if (!agent?.branch || agent.branch !== record.branch) {
+    return 'Demand sa a se pou yon lòt siikisal — ou pa gen dwa trete l.';
+  }
+  return null;
+}
+
 // Kalkile revni BLICPay pou yon peryòd espesifik, detaye pa sous. Peryòd yo
 // aksepte: "day" (jodi a), "month" (mwa sa a), "year" (ane sa a), "all"
 // (tout tan). N ap ajoute lòt sous revni (egzanp enterè Prè) lè fonksyonalite
@@ -537,6 +553,8 @@ adminRouter.post('/deposits/:id/confirm', requireAdminOrAgent, async (req, res) 
       error: 'Depo MonCash yo konfime otomatikman — yo pa ka konfime alamen. Si li rete "pending", se paske peman an poko fini.',
     });
   }
+  const branchError = await checkAgentBranchAccess(req, deposit);
+  if (branchError) return res.status(403).json({ error: branchError });
 
   const [, updatedUser] = await prisma.$transaction([
     prisma.deposit.update({
@@ -564,6 +582,8 @@ adminRouter.post('/deposits/:id/reject', requireAdminOrAgent, async (req, res) =
   if (deposit.status !== 'pending') {
     return res.status(409).json({ error: 'Depo sa a deja trete.' });
   }
+  const branchError = await checkAgentBranchAccess(req, deposit);
+  if (branchError) return res.status(403).json({ error: branchError });
 
   await prisma.deposit.update({
     where: { id: deposit.id },
@@ -1165,6 +1185,8 @@ adminRouter.post('/withdrawals/:id/confirm', requireAdminOrAgent, async (req, re
   const withdrawal = await prisma.withdrawal.findUnique({ where: { id: req.params.id } });
   if (!withdrawal) return res.status(404).json({ error: 'Retrè a pa jwenn.' });
   if (withdrawal.status !== 'pending') return res.status(409).json({ error: 'Retrè sa a deja trete.' });
+  const branchError = await checkAgentBranchAccess(req, withdrawal);
+  if (branchError) return res.status(403).json({ error: branchError });
 
   // Balans lan te deja retire lè demand la te fèt — konfimasyon an jis mache
   // dosye a kòm trete, li pa touche balans lan ankò.
@@ -1186,6 +1208,8 @@ adminRouter.post('/withdrawals/:id/reject', requireAdminOrAgent, async (req, res
   const withdrawal = await prisma.withdrawal.findUnique({ where: { id: req.params.id } });
   if (!withdrawal) return res.status(404).json({ error: 'Retrè a pa jwenn.' });
   if (withdrawal.status !== 'pending') return res.status(409).json({ error: 'Retrè sa a deja trete.' });
+  const branchError = await checkAgentBranchAccess(req, withdrawal);
+  if (branchError) return res.status(403).json({ error: branchError });
 
   // Refize yon retrè remèt lajan an nan balans kliyan an, paske li te deja
   // retire lè demand la te fèt.
