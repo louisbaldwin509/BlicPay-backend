@@ -19,6 +19,7 @@ function publicUser(user) {
     fullName: user.fullName,
     phone: user.phone,
     role: user.role,
+    branch: user.branch,
     balance: user.balance,
     verified: user.verified,
   };
