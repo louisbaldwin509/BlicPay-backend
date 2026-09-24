@@ -29,6 +29,7 @@ model User {
   photoMimeType String?
   feeableBalance Int     @default(0) // konbyen lajan ELEKTWONIK (MonCash, elt.) ki toujou nan kont lan, pa ko retire — sèvi pou deside si frè retrè 1.25% la aplike, san bezwen swiv chak goud endividyèlman
   solPayoutBalance Int   @default(0) // konbyen lajan ki soti nan yon pòch Sòl ki toujou nan kont lan, pa ko retire — egzante de plafon retrè jou/semèn/mwa yo
+  solPayouts    SolPayout[]
   createdAt    DateTime  @default(now())
   deposits     Deposit[]
   solMemberships SolMembership[]
@@ -127,6 +128,21 @@ model SolGroup {
   createdAt   DateTime        @default(now())
   memberships SolMembership[]
   contributions SolContribution[]
+  payouts     SolPayout[]
+}
+
+// Enrejistreman ISTORIK pou CHAK fwa yon manm resevwa pòch li — sa pèmèt
+// sipè admin gade tout istorik peman Sòl yo pita, olye pou l sèlman konte
+// sou balans aktyèl kliyan an (ki pa gade DAT/gwoup peman an te fèt).
+model SolPayout {
+  id        String   @id @default(cuid())
+  groupId   String
+  group     SolGroup @relation(fields: [groupId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  period    Int      // ki peryòd/wotasyon (0-endekse) peman sa a soti
+  amount    Int
+  paidAt    DateTime @default(now())
 }
 
 // Kotizasyon yon manm dwe peye pou yon peryòd espesifik nan wotasyon an.
@@ -219,6 +235,18 @@ model Withdrawal {
   proofImage    String?   // kapti/resi admin/ajan an telechaje kòm prèv li voye lajan an, kòm base64
   proofMimeType String?
   user        User      @relation(fields: [userId], references: [id])
+}
+
+// Rezèv manyèl BLICPay genyen sou chak metòd (MonCash, NatCash) — pa gen okenn
+// API MonCash/NatCash ki bay balans an tan reyèl, kidonk sipè admin mete l ajou
+// alamen chak fwa li verifye/rechaje kont operasyonèl la. Sèvi pou konnen si gen
+// ase lajan disponib anvan konfime yon gwo retrè.
+model PlatformReserve {
+  id        String   @id @default(cuid())
+  method    String   @unique // "moncash" | "natcash"
+  balance   Int      @default(0)
+  updatedAt DateTime @updatedAt
+  updatedBy String?
 }
 
 // Yon objektif epay yon kliyan kreye pou li menm — lajan ki ladan l separe
