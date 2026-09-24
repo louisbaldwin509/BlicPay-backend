@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../utils/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { notifyAdmins } from '../utils/notify.js';
 
 export const supportRouter = Router();
 supportRouter.use(requireAuth);
@@ -25,6 +26,13 @@ supportRouter.post('/', async (req, res) => {
     });
 
     res.status(201).json({ support });
+
+    const sender = await prisma.user.findUnique({ where: { id: req.user.id }, select: { fullName: true } });
+    await notifyAdmins({
+      title: 'Nouvo mesaj sipò',
+      body: `${sender.fullName}: ${message.trim().slice(0, 80)}`,
+      type: 'general',
+    });
   } catch (err) {
     console.error('Support message error:', err);
     res.status(500).json({ error: 'Nou pa t ka voye mesaj ou a. Eseye ankò.' });
