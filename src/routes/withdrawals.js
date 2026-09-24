@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../utils/db.js';
 import { requireAuth, requireVerified } from '../middleware/auth.js';
 import { generateReference } from '../utils/reference.js';
+import { notifyAdmins } from '../utils/notify.js';
 
 export const withdrawalsRouter = Router();
 
@@ -63,7 +64,7 @@ withdrawalsRouter.get('/fee-preview', requireAuth, async (req, res) => {
 // PLAFON JOU/SEMÈN/MWA: sèlman aplike sou pòsyon ki PA soti nan yon pòch
 // Sòl (swiv ak `solPayoutBalance`, menm mekanis ak `feeableBalance`).
 withdrawalsRouter.post('/', requireAuth, requireVerified, async (req, res) => {
-  const { amount, method, pin, branch, destinationNumber, destinationName } = req.body;
+  const { amount, method, pin, branch } = req.body;
   const numericAmount = Math.round(Number(amount));
 
   if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
@@ -78,19 +79,13 @@ withdrawalsRouter.post('/', requireAuth, requireVerified, async (req, res) => {
   if (method === 'biwo' && !branch?.trim()) {
     return res.status(400).json({ error: 'Chwazi yon siikisal.' });
   }
-  if ((method === 'moncash' || method === 'natcash') && !destinationNumber?.trim()) {
-    return res.status(400).json({ error: `Antre nimewo ${method === 'moncash' ? 'MonCash' : 'NatCash'} kote pou voye lajan an.` });
-  }
-  if ((method === 'moncash' || method === 'natcash') && !destinationName?.trim()) {
-    return res.status(400).json({ error: `Antre non ki anrejistre sou kont ${method === 'moncash' ? 'MonCash' : 'NatCash'} sa a.` });
-  }
   if (!pin || !/^\d{4}$/.test(pin)) {
     return res.status(400).json({ error: 'Kòd PIN 4 chif la obligatwa.' });
   }
 
   const user = await prisma.user.findUnique({
     where: { id: req.user.id },
-    select: { pinHash: true, feeableBalance: true, solPayoutBalance: true },
+    select: { pinHash: true, feeableBalance: true, solPayoutBalance: true, fullName: true },
   });
   if (!user?.pinHash) {
     return res.status(409).json({ error: 'Ou dwe kreye yon kòd PIN anvan ou ka fè yon retrè.' });
@@ -162,14 +157,18 @@ withdrawalsRouter.post('/', requireAuth, requireVerified, async (req, res) => {
           cappedAmount,
           method,
           branch: method === 'biwo' ? branch.trim() : null,
-          destinationNumber: (method === 'moncash' || method === 'natcash') ? destinationNumber.trim() : null,
-          destinationName: (method === 'moncash' || method === 'natcash') ? destinationName.trim() : null,
           reference: generateReference('RET-'),
         },
       });
     });
 
     res.status(201).json({ withdrawal });
+
+    await notifyAdmins({
+      title: 'Nouvo demand retrè',
+      body: `${user.fullName} mande retire ${numericAmount.toLocaleString('fr-FR')} HTG.`,
+      type: 'withdrawal',
+    });
   } catch (err) {
     if (err.message === 'INSUFFICIENT_BALANCE') {
       return res.status(400).json({ error: `Ou pa gen ase lajan — retrè sa a mande ${totalDeducted.toLocaleString('fr-FR')} HTG (montan + ${fee.toLocaleString('fr-FR')} HTG frè).` });
