@@ -667,6 +667,34 @@ const SOL_INTEGRATION_FEE_RATE = 0.015; // 1.5% — chaje sèlman lè admin apwo
 // plizyè fwa pou menm jou a (kenbe kota gratis la).
 let exchangeRateCache = null; // { rate, rateDate, fetchedAt }
 
+// ---- Notifikasyon admin — chak admin/ajan wè PWÒP notifikasyon pa li ----
+// (yo se User tou, kidonk yo itilize menm modèl Notification ak kliyan yo,
+// jis vize sou pwòp kont admin/ajan an olye de yon kliyan).
+
+adminRouter.get('/notifications', requireAdminOrAgent, async (req, res) => {
+  const notifications = await prisma.notification.findMany({
+    where: { userId: req.user.id },
+    orderBy: { createdAt: 'desc' },
+    take: 30,
+  });
+  const unreadCount = await prisma.notification.count({ where: { userId: req.user.id, read: false } });
+  res.json({ notifications, unreadCount });
+});
+
+adminRouter.patch('/notifications/:id/read', requireAdminOrAgent, async (req, res) => {
+  const notification = await prisma.notification.findUnique({ where: { id: req.params.id } });
+  if (!notification || notification.userId !== req.user.id) {
+    return res.status(404).json({ error: 'Notifikasyon sa a pa jwenn.' });
+  }
+  await prisma.notification.update({ where: { id: notification.id }, data: { read: true } });
+  res.json({ ok: true });
+});
+
+adminRouter.post('/notifications/read-all', requireAdminOrAgent, async (req, res) => {
+  await prisma.notification.updateMany({ where: { userId: req.user.id, read: false }, data: { read: true } });
+  res.json({ ok: true });
+});
+
 adminRouter.get('/exchange-rate', requireAdminOrAgent, async (req, res) => {
   const today = new Date().toISOString().slice(0, 10);
   if (exchangeRateCache && exchangeRateCache.fetchedAt === today) {
