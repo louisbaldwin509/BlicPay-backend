@@ -656,6 +656,39 @@ adminRouter.get('/sol/requests/pending', requireAdmin, async (req, res) => {
 // 2yèm, elatriye). Si li pa chwazi youn, nou bay premye pozisyon ki lib la.
 const SOL_INTEGRATION_FEE_RATE = 0.015; // 1.5% — chaje sèlman lè admin apwouve manm nan
 
+// Nenpòt retrè ki depase montan sa a mande yon prèv (foto resi/kapti) OBLIGATWA
+// anvan li ka konfime — pwoteksyon kont fwod pou gwo montan.
+const WITHDRAWAL_PROOF_REQUIRED_THRESHOLD = 50000;
+
+// ---- Rezèv manyèl pa metòd (MonCash, NatCash) ----
+
+adminRouter.get('/reserves', requireAdminOrAgent, async (req, res) => {
+  const reserves = await prisma.platformReserve.findMany({ orderBy: { method: 'asc' } });
+  res.json({ reserves });
+});
+
+// Sèlman sipè admin ka modifye rezèv la — se yon chif ki afekte desizyon
+// finansye, pa yon aksyon operasyonèl debaz tankou konfime yon depo/retrè.
+adminRouter.patch('/reserves/:method', requireAdmin, async (req, res) => {
+  const { method } = req.params;
+  const { balance } = req.body;
+  const numericBalance = Number(balance);
+  if (!['moncash', 'natcash'].includes(method)) {
+    return res.status(400).json({ error: 'Metòd sa a pa sipòte pou rezèv.' });
+  }
+  if (!Number.isFinite(numericBalance) || numericBalance < 0) {
+    return res.status(400).json({ error: 'Balans lan pa valab.' });
+  }
+
+  const reserve = await prisma.platformReserve.upsert({
+    where: { method },
+    update: { balance: Math.round(numericBalance), updatedBy: req.user.id },
+    create: { method, balance: Math.round(numericBalance), updatedBy: req.user.id },
+  });
+  res.json({ reserve });
+});
+
+
 adminRouter.post('/sol/requests/:id/approve', requireAdmin, async (req, res) => {
   const { turnIndex } = req.body; // pozisyon 1-endekse (1 = premye plas), opsyonèl
   const membership = await prisma.solMembership.findUnique({ where: { id: req.params.id }, include: { group: true } });
@@ -1245,11 +1278,21 @@ adminRouter.post('/withdrawals/:id/confirm', requireAdminOrAgent, async (req, re
   const branchError = await checkAgentBranchAccess(req, withdrawal);
   if (branchError) return res.status(403).json({ error: branchError });
 
+  const { proofImage, proofMimeType } = req.body;
+  if (withdrawal.amount >= WITHDRAWAL_PROOF_REQUIRED_THRESHOLD && !proofImage) {
+    return res.status(400).json({
+      error: `Retrè ki depase ${WITHDRAWAL_PROOF_REQUIRED_THRESHOLD.toLocaleString('fr-FR')} HTG mande yon prèv (foto resi) obligatwa anvan konfimasyon.`,
+    });
+  }
+
   // Balans lan te deja retire lè demand la te fèt — konfimasyon an jis mache
   // dosye a kòm trete, li pa touche balans lan ankò.
   await prisma.withdrawal.update({
     where: { id: withdrawal.id },
-    data: { status: 'confirmed', confirmedAt: new Date(), confirmedBy: req.user.id },
+    data: {
+      status: 'confirmed', confirmedAt: new Date(), confirmedBy: req.user.id,
+      ...(proofImage ? { proofImage, proofMimeType: proofMimeType || null } : {}),
+    },
   });
 
   await notifyUser(withdrawal.userId, {
