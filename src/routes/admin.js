@@ -537,6 +537,26 @@ adminRouter.get('/deposits/pending', requireAdminOrAgent, async (req, res) => {
   res.json({ deposits });
 });
 
+// Istorik KONPLE tout depo yo (konfime, refize, ak toujou k ap tann), pou
+// admin/ajan ka gade sa ki te pase deja — pa jis demand ki poko trete.
+adminRouter.get('/deposits/history', requireAdminOrAgent, async (req, res) => {
+  let agentBranch = null;
+  if (req.user.role === 'agent') {
+    const agent = await prisma.user.findUnique({ where: { id: req.user.id }, select: { branch: true } });
+    agentBranch = agent?.branch || null;
+  }
+
+  const deposits = await prisma.deposit.findMany({
+    where: {
+      ...(agentBranch ? { OR: [{ method: { not: 'biwo' } }, { branch: agentBranch }] } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+    include: { user: { select: { fullName: true, phone: true } } },
+  });
+  res.json({ deposits });
+});
+
 // Confirming a deposit and crediting the balance happen in one atomic
 // transaction so a crash between the two steps can never leave the
 // deposit marked confirmed without the money actually landing in the
@@ -876,6 +896,9 @@ adminRouter.post('/sol/groups/:id/process-period', requireAdmin, async (req, res
           where: { id: recipient.userId },
           data: { balance: { increment: potAmount }, solPayoutBalance: { increment: potAmount } },
         });
+        await prisma.solPayout.create({
+          data: { groupId: group.id, userId: recipient.userId, period: group.currentTurn, amount: potAmount },
+        });
         await notifyUser(recipient.userId, {
           title: 'Ou resevwa pòch Sòl ou',
           body: `Ou resevwa ${potAmount.toLocaleString('fr-FR')} HTG pou "${group.name}".`,
@@ -1161,6 +1184,21 @@ adminRouter.get('/sol/groups/:id/members', requireAdminOrAgent, async (req, res)
   });
 });
 
+// Istorik tout pòch Sòl ki te reyèlman peye — kreye pandan "process-period"
+// (gade pi wo). Pa gen restriksyon pa siikisal: Sòl pa mare ak yon biwo
+// fizik, se yon aksè lekti sèlman pou ajan yo tou.
+adminRouter.get('/sol/payouts', requireAdminOrAgent, async (req, res) => {
+  const payouts = await prisma.solPayout.findMany({
+    orderBy: { paidAt: 'desc' },
+    take: 200,
+    include: {
+      user: { select: { fullName: true, phone: true } },
+      group: { select: { name: true, tier: true, frequency: true } },
+    },
+  });
+  res.json({ payouts });
+});
+
 // ---- Retrait ----
 
 adminRouter.get('/withdrawals/pending', requireAdminOrAgent, async (req, res) => {
@@ -1176,6 +1214,25 @@ adminRouter.get('/withdrawals/pending', requireAdminOrAgent, async (req, res) =>
       ...(agentBranch ? { OR: [{ method: { not: 'biwo' } }, { branch: agentBranch }] } : {}),
     },
     orderBy: { createdAt: 'asc' },
+    include: { user: { select: { fullName: true, phone: true } } },
+  });
+  res.json({ withdrawals });
+});
+
+// Istorik KONPLE tout retrè yo (konfime, refize, ak toujou k ap tann).
+adminRouter.get('/withdrawals/history', requireAdminOrAgent, async (req, res) => {
+  let agentBranch = null;
+  if (req.user.role === 'agent') {
+    const agent = await prisma.user.findUnique({ where: { id: req.user.id }, select: { branch: true } });
+    agentBranch = agent?.branch || null;
+  }
+
+  const withdrawals = await prisma.withdrawal.findMany({
+    where: {
+      ...(agentBranch ? { OR: [{ method: { not: 'biwo' } }, { branch: agentBranch }] } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
     include: { user: { select: { fullName: true, phone: true } } },
   });
   res.json({ withdrawals });
