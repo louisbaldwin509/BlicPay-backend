@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../utils/db.js';
 import { requireAuth, requireVerified } from '../middleware/auth.js';
 import { getPeriodDates, formatHtDate } from '../utils/solDates.js';
+import { notifyAdmins } from '../utils/notify.js';
 
 export const solRouter = Router();
 
@@ -68,7 +69,7 @@ solRouter.get('/groups/:id', async (req, res) => {
 // li PA fè moun nan vin manm otomatikman. Yon admin dwe apwouve l. Kont lan
 // dwe verifye (KYC) anvan li ka voye yon demand.
 solRouter.post('/groups/:id/request', requireVerified, async (req, res) => {
-  const requester = await prisma.user.findUnique({ where: { id: req.user.id }, select: { creditBanned: true } });
+  const requester = await prisma.user.findUnique({ where: { id: req.user.id }, select: { creditBanned: true, fullName: true } });
   if (requester?.creditBanned) {
     return res.status(403).json({ error: 'Kont ou pa ka patisipe nan Sòl ankò — kontakte sipò BLICPay.' });
   }
@@ -103,6 +104,12 @@ solRouter.post('/groups/:id/request', requireVerified, async (req, res) => {
     : await prisma.solMembership.create({ data: { groupId: group.id, userId: req.user.id } });
 
   res.status(201).json({ membership });
+
+  await notifyAdmins({
+    title: 'Nouvo demand Sòl',
+    body: `${requester.fullName} mande antre nan "${group.name}".`,
+    type: 'sol',
+  });
 });
 
 // Tout demand ak adhezyon pwòp itilizatè a (pou paj "Sòl mwen yo"), ansanm ak
