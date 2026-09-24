@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../utils/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { notifyUser } from '../utils/notify.js';
+import { notifyUser, notifyAdmins } from '../utils/notify.js';
 import { diditStartLimiter } from '../middleware/rateLimit.js';
 
 export const kycDiditRouter = Router();
@@ -123,6 +123,13 @@ kycDiditRouter.post('/webhook', async (req, res) => {
     await notifyUser(verification.userId, {
       title: 'Verifikasyon w resevwa',
       body: 'Nou resevwa rezilta verifikasyon idantite w — n ap egzamine l anvan konfimasyon final.',
+      type: 'kyc',
+    });
+
+    const client = await prisma.user.findUnique({ where: { id: verification.userId }, select: { fullName: true } });
+    await notifyAdmins({
+      title: 'Rezilta KYC pare pou egzamen',
+      body: `Rapò Didit ${client.fullName} rive — estati: ${decision.status}.`,
       type: 'kyc',
     });
 
