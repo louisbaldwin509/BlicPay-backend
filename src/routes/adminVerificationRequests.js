@@ -5,8 +5,15 @@ import { notifyUser } from '../utils/notify.js';
 
 // Mòte nan index.js sou '/admin' — chak wout anba a deja gen '/admin' kòm
 // prefiks (egzanp: '/users/:id/verification-requests' → '/admin/users/:id/verification-requests').
+//
+// ATANSYON: sèlman `requireAuth` isit la nan `.use()` a — PA `requireAdmin`.
+// Paske wout sa a monte AVAN `adminRouter` prensipal la sou menm '/admin',
+// yon `requireAdmin` global isit la ta bloke TOUT demand ki kòmanse ak
+// '/admin/' (menm sa ki pa gen anyen pou wè ak fichye sa a, tankou
+// '/admin/deposits/pending'), anvan yo menm gen chans rive nan bon wout la.
+// `requireAdmin` aplike pou chak wout endividyèl anba a olye de sa.
 export const adminVerificationRequestsRouter = Router();
-adminVerificationRequestsRouter.use(requireAuth, requireAdmin);
+adminVerificationRequestsRouter.use(requireAuth);
 
 const TYPE_LABELS = {
   address_proof: 'Prèv adrès',
@@ -17,7 +24,7 @@ const TYPE_LABELS = {
 
 // Admin kreye yon demand pou YON kliyan espesifik — pa touche badge
 // "verifye" li deja genyen an, se yon demand SIPLEMANTÈ apa.
-adminVerificationRequestsRouter.post('/users/:id/verification-requests', async (req, res) => {
+adminVerificationRequestsRouter.post('/users/:id/verification-requests', requireAdmin, async (req, res) => {
   try {
     const { type, note } = req.body;
     if (!type || !TYPE_LABELS[type]) {
@@ -50,7 +57,7 @@ adminVerificationRequestsRouter.post('/users/:id/verification-requests', async (
 });
 
 // Tout demand pou YON kliyan (itilize nan modal detay itilizatè a).
-adminVerificationRequestsRouter.get('/users/:id/verification-requests', async (req, res) => {
+adminVerificationRequestsRouter.get('/users/:id/verification-requests', requireAdmin, async (req, res) => {
   try {
     const requests = await prisma.verificationRequest.findMany({
       where: { userId: req.params.id },
@@ -64,7 +71,7 @@ adminVerificationRequestsRouter.get('/users/:id/verification-requests', async (r
 });
 
 // Fil datant global — pa default, demand "submitted" (ap tann egzamen admin).
-adminVerificationRequestsRouter.get('/verification-requests', async (req, res) => {
+adminVerificationRequestsRouter.get('/verification-requests', requireAdmin, async (req, res) => {
   try {
     const status = req.query.status || 'submitted';
     const requests = await prisma.verificationRequest.findMany({
@@ -79,7 +86,7 @@ adminVerificationRequestsRouter.get('/verification-requests', async (req, res) =
   }
 });
 
-adminVerificationRequestsRouter.post('/verification-requests/:id/approve', async (req, res) => {
+adminVerificationRequestsRouter.post('/verification-requests/:id/approve', requireAdmin, async (req, res) => {
   try {
     const request = await prisma.verificationRequest.update({
       where: { id: req.params.id },
@@ -99,7 +106,7 @@ adminVerificationRequestsRouter.post('/verification-requests/:id/approve', async
   }
 });
 
-adminVerificationRequestsRouter.post('/verification-requests/:id/reject', async (req, res) => {
+adminVerificationRequestsRouter.post('/verification-requests/:id/reject', requireAdmin, async (req, res) => {
   try {
     const { reason } = req.body;
     if (!reason?.trim()) return res.status(400).json({ error: 'Yon rezon obligatwa pou refize.' });
