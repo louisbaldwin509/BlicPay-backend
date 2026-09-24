@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../utils/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { generateReference } from '../utils/reference.js';
+import { notifyAdmins } from '../utils/notify.js';
 
 export const depositsRouter = Router();
 
@@ -40,6 +41,17 @@ depositsRouter.post('/', requireAuth, async (req, res) => {
     },
   });
   res.status(201).json({ deposit });
+
+  // MonCash konfime otomatikman pa yon webhook — pa gen rezon deranje admin
+  // yo pou sa. Tout lòt metòd yo mande yon konfimasyon manyèl.
+  if (method !== 'moncash') {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { fullName: true } });
+    await notifyAdmins({
+      title: 'Nouvo depo ap tann konfimasyon',
+      body: `${user.fullName} fè yon depo ${Math.round(numericAmount).toLocaleString('fr-FR')} HTG (${method}).`,
+      type: 'deposit',
+    });
+  }
 });
 
 // Used by the app's "refresh" button to poll whether a specific deposit
