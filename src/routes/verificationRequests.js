@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../utils/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { notifyAdmins } from '../utils/notify.js';
 
 export const verificationRequestsRouter = Router();
 verificationRequestsRouter.use(requireAuth);
@@ -61,6 +62,13 @@ verificationRequestsRouter.post('/:id/submit', async (req, res) => {
     });
 
     res.json({ request: updated });
+
+    const sender = await prisma.user.findUnique({ where: { id: req.user.id }, select: { fullName: true } });
+    await notifyAdmins({
+      title: 'Dokiman siplemantè soumèt',
+      body: `${sender.fullName} soumèt dokiman li mande a.`,
+      type: 'kyc',
+    });
   } catch (err) {
     console.error('Submit verification request error:', err);
     res.status(500).json({ error: 'Nou pa t ka voye dokiman an.' });
