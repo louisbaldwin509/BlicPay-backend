@@ -656,9 +656,8 @@ adminRouter.get('/sol/requests/pending', requireAdmin, async (req, res) => {
 // 2yèm, elatriye). Si li pa chwazi youn, nou bay premye pozisyon ki lib la.
 const SOL_INTEGRATION_FEE_RATE = 0.015; // 1.5% — chaje sèlman lè admin apwouve manm nan
 
-// Nenpòt retrè ki depase montan sa a mande yon prèv (foto resi/kapti) OBLIGATWA
-// anvan li ka konfime — pwoteksyon kont fwod pou gwo montan.
-const WITHDRAWAL_PROOF_REQUIRED_THRESHOLD = 50000;
+// Nenpòt retrè mande yon prèv (foto resi/kapti) OBLIGATWA anvan li ka
+// konfime — pwoteksyon kont fwod, kèlkeswa gwosè montan an.
 
 // ---- Rezèv manyèl pa metòd (MonCash, NatCash) ----
 
@@ -1279,9 +1278,9 @@ adminRouter.post('/withdrawals/:id/confirm', requireAdminOrAgent, async (req, re
   if (branchError) return res.status(403).json({ error: branchError });
 
   const { proofImage, proofMimeType } = req.body;
-  if (withdrawal.amount >= WITHDRAWAL_PROOF_REQUIRED_THRESHOLD && !proofImage) {
+  if (!proofImage) {
     return res.status(400).json({
-      error: `Retrè ki depase ${WITHDRAWAL_PROOF_REQUIRED_THRESHOLD.toLocaleString('fr-FR')} HTG mande yon prèv (foto resi) obligatwa anvan konfimasyon.`,
+      error: 'Ou dwe telechaje yon prèv (foto resi/tranzaksyon) anvan ou konfime nenpòt retrè.',
     });
   }
 
