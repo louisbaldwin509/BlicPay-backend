@@ -325,17 +325,20 @@ adminRouter.get('/finance/summary', requireAdminOrAgent, async (req, res) => {
     ...allConfirmedWithdrawalUsers.map((w) => w.userId),
   ]).size;
 
-  // Detay pa siikisal: pou chak depo/retrè konfime pandan peryòd la, jwenn
-  // biwo ajan ki konfime l la te travay ladan l (gras a `confirmedBy`), PLIS
-  // konbyen KLIYAN INIK (pa kont tranzaksyon) chak biwo sèvi pandan peryòd la.
+  // Detay pa siikisal: pou depo/retrè "biwo", nou konnen DEJA ki siikisal
+  // konsène a (kliyan an chwazi l lè l te fè demand lan) — nou sèvi ak sa a
+  // ANPREMYE, kèlkeswa ki moun ki konfime l (menm si se sipè admin ki fè l
+  // pito ke ajan biwo a). Sèlman lè pa gen okenn siikisal DIRÈK sou
+  // tranzaksyon an (metòd ki pa "biwo", tankou NatCash), nou tonbe sou
+  // siikisal AJAN ki konfime l la kòm dezyèm chwa.
   const [confirmedDeposits, confirmedWithdrawalsFull] = await Promise.all([
     prisma.deposit.findMany({
       where: { status: 'confirmed', confirmedAt: { gte: start }, confirmedBy: { not: null } },
-      select: { amount: true, confirmedBy: true, userId: true },
+      select: { amount: true, confirmedBy: true, userId: true, branch: true },
     }),
     prisma.withdrawal.findMany({
       where: { status: 'confirmed', createdAt: { gte: start }, confirmedBy: { not: null } },
-      select: { amount: true, fee: true, confirmedBy: true, userId: true },
+      select: { amount: true, fee: true, confirmedBy: true, userId: true, branch: true },
     }),
   ]);
 
@@ -370,14 +373,14 @@ adminRouter.get('/finance/summary', requireAdminOrAgent, async (req, res) => {
   };
 
   for (const d of confirmedDeposits) {
-    const branch = branchByUserId[d.confirmedBy];
+    const branch = d.branch || branchByUserId[d.confirmedBy];
     if (branch) {
       addToBranch(branch, { volume: d.amount, count: 1, depositVolume: d.amount, depositCount: 1 });
       clientSetByBranch[branch].add(d.userId);
     }
   }
   for (const w of confirmedWithdrawalsFull) {
-    const branch = branchByUserId[w.confirmedBy];
+    const branch = w.branch || branchByUserId[w.confirmedBy];
     if (branch) {
       addToBranch(branch, { volume: w.amount, fees: w.fee, count: 1, withdrawalVolume: w.amount, withdrawalCount: 1 });
       clientSetByBranch[branch].add(w.userId);
