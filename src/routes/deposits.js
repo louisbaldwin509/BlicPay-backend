@@ -37,7 +37,7 @@ depositsRouter.post('/', requireAuth, async (req, res) => {
       amount: Math.round(numericAmount),
       method,
       branch: method === 'biwo' ? branch.trim() : null,
-      reference: generateReference(),
+      reference: generateReference('DEP-'),
     },
   });
   res.status(201).json({ deposit });
