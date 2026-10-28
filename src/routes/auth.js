@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../utils/db.js';
 import { loginLimiter } from '../middleware/rateLimit.js';
+import { requireAuth } from '../middleware/auth.js';
 
 export const authRouter = Router();
 
@@ -82,4 +83,34 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
   }
 
   res.json({ token: signToken(user), user: publicUser(user) });
+});
+
+// Nenpòt itilizatè ki konekte (kliyan, ajan, admin) chanje pwòp modpas li.
+// Li dwe bay modpas AKTYÈL la kòm prèv — menm si yon moun ta jwenn yon
+// telefòn ki toujou konekte, li pa ka chanje modpas la san l pa konnen l.
+// Rate-limite menm jan ak koneksyon an pou anpeche divinasyon modpas aktyèl la.
+authRouter.post('/change-password', loginLimiter, requireAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Modpas aktyèl la ak nouvo modpas la obligatwa.' });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'Nouvo modpas la dwe gen omwen 6 karaktè.' });
+  }
+  if (newPassword === currentPassword) {
+    return res.status(400).json({ error: 'Nouvo modpas la dwe diferan de ansyen an.' });
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+  if (!user) return res.status(404).json({ error: 'Kont lan pa jwenn.' });
+
+  const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!valid) {
+    // 400 (pa 401) pou front-end lan pa konprann sa kòm yon sesyon ki ekspire.
+    return res.status(400).json({ error: 'Modpas aktyèl la pa kòrèk.' });
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+  res.json({ ok: true });
 });
