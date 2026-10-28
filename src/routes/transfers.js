@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../utils/db.js';
 import { requireAuth, requireVerified } from '../middleware/auth.js';
+import { parseDateRange, RANGE_LIMIT } from './wallet.js';
 
 export const transfersRouter = Router();
 
@@ -55,10 +56,12 @@ transfersRouter.post('/', requireVerified, async (req, res) => {
 });
 
 transfersRouter.get('/my', async (req, res) => {
+  const range = parseDateRange(req.query);
+  if (range === 'invalid') return res.status(400).json({ error: 'Dat yo pa valab.' });
   const transfers = await prisma.transfer.findMany({
-    where: { OR: [{ fromUserId: req.user.id }, { toUserId: req.user.id }] },
+    where: { OR: [{ fromUserId: req.user.id }, { toUserId: req.user.id }], ...(range ? { createdAt: range } : {}) },
     orderBy: { createdAt: 'desc' },
-    take: 50,
+    take: range ? RANGE_LIMIT : 50,
     include: {
       fromUser: { select: { fullName: true, phone: true } },
       toUser: { select: { fullName: true, phone: true } },

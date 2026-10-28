@@ -49,6 +49,7 @@ const ENTRIES = [
   ['Ou dwe kreye yon kòd PIN anvan ou ka fè yon retrè.', 'Vous devez créer un code PIN avant de faire un retrait.', 'You must create a PIN before making a withdrawal.'],
 
   // ---------- Montan / balans ----------
+  ['Dat yo pa valab.', 'Dates invalides.', 'Invalid dates.'],
   ['Montan an pa valab.', 'Montant invalide.', 'Invalid amount.'],
   ['Ou pa gen ase lajan.', "Vous n'avez pas assez d'argent.", "You don't have enough money."],
   ['Ou pa gen ase lajan pou transfè sa a.', "Vous n'avez pas assez d'argent pour ce transfert.", "You don't have enough money for this transfer."],
