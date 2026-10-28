@@ -100,6 +100,7 @@ const ENTRIES = [
   // ---------- Depo ----------
   ['Metòd depo a pa rekonèt.', 'Méthode de dépôt non reconnue.', 'Unrecognized deposit method.'],
   ['Chwazi yon siikisal.', 'Choisissez une succursale.', 'Choose a branch.'],
+  ['Antre nimewo a ak non ki sou kont lan.', 'Entrez le numéro et le nom inscrit sur le compte.', 'Enter the number and the name on the account.'],
   ['Montan minimòm pou yon depo se {0} HTG.', 'Le montant minimum pour un dépôt est de {0} HTG.', 'The minimum deposit amount is {0} HTG.'],
   ['Depo a pa jwenn.', 'Dépôt introuvable.', 'Deposit not found.'],
   ['Depo sa a deja trete.', 'Ce dépôt a déjà été traité.', 'This deposit has already been processed.'],

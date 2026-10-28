@@ -63,7 +63,7 @@ withdrawalsRouter.get('/fee-preview', requireAuth, async (req, res) => {
 // PLAFON JOU/SEMÈN/MWA: sèlman aplike sou pòsyon ki PA soti nan yon pòch
 // Sòl (swiv ak `solPayoutBalance`, menm mekanis ak `feeableBalance`).
 withdrawalsRouter.post('/', requireAuth, requireVerified, async (req, res) => {
-  const { amount, method, pin, branch } = req.body;
+  const { amount, method, pin, branch, destinationNumber, destinationName } = req.body;
   const numericAmount = Math.round(Number(amount));
 
   if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
@@ -77,6 +77,13 @@ withdrawalsRouter.post('/', requireAuth, requireVerified, async (req, res) => {
   }
   if (method === 'biwo' && !branch?.trim()) {
     return res.status(400).json({ error: 'Chwazi yon siikisal.' });
+  }
+  // MonCash/NatCash: ajan an bezwen nimewo a ak non ki sou kont lan pou l voye lajan an.
+  const isMobileWallet = method === 'moncash' || method === 'natcash';
+  const cleanNumber = typeof destinationNumber === 'string' ? destinationNumber.replace(/[^\d+]/g, '').slice(0, 20) : '';
+  const cleanName = typeof destinationName === 'string' ? destinationName.trim().slice(0, 120) : '';
+  if (isMobileWallet && (cleanNumber.replace(/\D/g, '').length < 8 || !cleanName)) {
+    return res.status(400).json({ error: 'Antre nimewo a ak non ki sou kont lan.' });
   }
   if (!pin || !/^\d{4}$/.test(pin)) {
     return res.status(400).json({ error: 'Kòd PIN 4 chif la obligatwa.' });
@@ -157,6 +164,8 @@ withdrawalsRouter.post('/', requireAuth, requireVerified, async (req, res) => {
           cappedAmount,
           method,
           branch: method === 'biwo' ? branch.trim() : null,
+          destinationNumber: isMobileWallet ? cleanNumber : null,
+          destinationName: isMobileWallet ? cleanName : null,
           reference: generateReference('RET-'),
         },
       });
