@@ -50,6 +50,8 @@ const ENTRIES = [
 
   // ---------- Montan / balans ----------
   ['Dat yo pa valab.', 'Dates invalides.', 'Invalid dates.'],
+  ['Foto a pa valab.', 'Photo invalide.', 'Invalid photo.'],
+  ['Foto a twò gwo.', 'La photo est trop lourde.', 'The photo is too large.'],
   ['Montan an pa valab.', 'Montant invalide.', 'Invalid amount.'],
   ['Ou pa gen ase lajan.', "Vous n'avez pas assez d'argent.", "You don't have enough money."],
   ['Ou pa gen ase lajan pou transfè sa a.', "Vous n'avez pas assez d'argent pour ce transfert.", "You don't have enough money for this transfer."],
