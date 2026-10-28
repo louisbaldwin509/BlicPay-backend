@@ -2,8 +2,18 @@ import { Router } from 'express';
 import { prisma } from '../utils/db.js';
 import { requireAuth, requireVerified } from '../middleware/auth.js';
 import { parseDateRange, RANGE_LIMIT } from './wallet.js';
+import { displayName } from '../utils/businessTypes.js';
 
 export const transfersRouter = Router();
+
+const PARTY_SELECT = { fullName: true, phone: true, accountType: true, business: { select: { status: true, tradeName: true, legalName: true } } };
+
+// Masque non yon moun (konfidansyalite): "Victor Beaubrun" → "Victor B."
+function maskPerson(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  if (parts.length < 2) return parts[0] || '';
+  return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+}
 
 transfersRouter.use(requireAuth);
 
@@ -55,6 +65,15 @@ transfersRouter.post('/', requireVerified, async (req, res) => {
   }
 });
 
+// Montre non destinatè a ANVAN kliyan an konfime yon transfè (oswa yon peman
+// QR bay yon antrepriz). Non moun yo maske; non antrepriz yo montre an plen.
+transfersRouter.get('/recipient/:clientId', async (req, res) => {
+  const u = await prisma.user.findUnique({ where: { clientId: req.params.clientId.trim().toUpperCase() }, select: { ...PARTY_SELECT, id: true, deletedAt: true } });
+  if (!u || u.deletedAt) return res.status(404).json({ error: 'Pa gen okenn kont BLICPay ak ID sa a.' });
+  const isBusiness = u.accountType === 'business' && u.business?.status === 'approved';
+  res.json({ recipient: { name: isBusiness ? displayName(u) : maskPerson(u.fullName), isBusiness, self: u.id === req.user.id } });
+});
+
 transfersRouter.get('/my', async (req, res) => {
   const range = parseDateRange(req.query);
   if (range === 'invalid') return res.status(400).json({ error: 'Dat yo pa valab.' });
@@ -63,9 +82,11 @@ transfersRouter.get('/my', async (req, res) => {
     orderBy: { createdAt: 'desc' },
     take: range ? RANGE_LIMIT : 50,
     include: {
-      fromUser: { select: { fullName: true, phone: true } },
-      toUser: { select: { fullName: true, phone: true } },
+      fromUser: { select: PARTY_SELECT },
+      toUser: { select: PARTY_SELECT },
     },
   });
-  res.json({ transfers });
+  // Montre non komèsyal antrepriz apwouve yo olye non reprezantan an.
+  const shape = (u) => ({ fullName: displayName(u), phone: u.phone, isBusiness: u.accountType === 'business' && u.business?.status === 'approved' });
+  res.json({ transfers: transfers.map((t) => ({ ...t, fromUser: shape(t.fromUser), toUser: shape(t.toUser) })) });
 });

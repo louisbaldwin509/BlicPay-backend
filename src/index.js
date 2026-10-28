@@ -27,6 +27,7 @@ import { merchantRouter } from './routes/merchant.js';
 import { paymentsRouter } from './routes/payments.js';
 import { translateResponses } from './utils/i18n.js';
 import { profileRouter } from './routes/profile.js';
+import { businessRouter, adminBusinessRouter } from './routes/business.js';
 const app = express();
 app.set('trust proxy', 1); // Railway mete app la dèyè yon pwoksi — san sa, express-rate-limit plante
 app.use(cors({ origin: (process.env.CORS_ORIGIN || '').split(',') }));
@@ -54,11 +55,13 @@ app.use('/notifications', notificationsRouter);
 app.use('/pockets', pocketsRouter);
 app.use('/sol', solRouter);
 app.use('/pin', pinRouter);
+app.use('/admin', adminBusinessRouter);
 app.use('/admin', adminRouter);
 app.use('/merchant/auth', merchantAuthRouter);
 app.use('/merchant', merchantRouter);
 app.use('/payments', paymentsRouter);
 app.use('/profile', profileRouter);
+app.use('/business', businessRouter);
 // Catch-all error handler — keeps unexpected errors from leaking stack
 // traces to clients while still logging them for you to debug.
 app.use((err, req, res, next) => {

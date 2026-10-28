@@ -29,6 +29,8 @@ profileRouter.get('/', async (req, res) => {
       verified: true,
       createdAt: true,
       photoMimeType: true,
+      accountType: true,
+      business: { select: { status: true, legalName: true, tradeName: true, legalForm: true } },
     },
   });
   if (!user) return res.status(404).json({ error: 'Kont lan pa jwenn.' });

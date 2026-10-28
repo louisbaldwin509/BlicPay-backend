@@ -29,6 +29,8 @@ model User {
   photoMimeType String?
   deletedAt     DateTime? // kliyan an efase kont li (done pèsonèl anonimize — dosye tranzaksyon yo rete jan lalwa mande)
   deletionReason String?
+  accountType   String    @default("personal") // "personal" | "business"
+  business      BusinessProfile?
   feeableBalance Int     @default(0) // konbyen lajan ELEKTWONIK (MonCash, elt.) ki toujou nan kont lan, pa ko retire — sèvi pou deside si frè retrè 1.25% la aplike, san bezwen swiv chak goud endividyèlman
   solPayoutBalance Int   @default(0) // konbyen lajan ki soti nan yon pòch Sòl ki toujou nan kont lan, pa ko retire — egzante de plafon retrè jou/semèn/mwa yo
   solPayouts    SolPayout[]
@@ -405,4 +407,50 @@ model VerificationRequest {
   decidedAt        DateTime?
   decidedBy        String?
   user             User      @relation(fields: [userId], references: [id])
+}
+
+// ---------------------------------------------------------------------------
+// KONT ANTREPRIZ — dosye legal yon biznis (yon sèl pa kont). Reprezantan legal
+// la se pwopriyetè kont User la (li fè KYC Didit pa li). Admin egzamine dosye a.
+// ---------------------------------------------------------------------------
+model BusinessProfile {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  legalName       String               // rezon sosyal / non legal
+  tradeName       String?              // non komèsyal (sa kliyan yo wè)
+  legalForm       String               // gade src/utils/businessTypes.js
+  nif             String?
+  patenteNumber   String?
+  sector          String?
+  address         String?
+  city            String?
+  businessPhone   String?
+  businessEmail   String?
+  website         String?
+  turnoverRange   String?              // "lt1m" | "1m_5m" | "5m_25m" | "gt25m" (HTG pa ane)
+  repTitle        String?              // pozisyon reprezantan an (DG, Pwopriyetè...)
+  status          String    @default("draft") // "draft" | "submitted" | "needs_info" | "approved" | "rejected"
+  adminNote       String?              // rezon refi oswa sa admin mande anplis
+  submittedAt     DateTime?
+  decidedAt       DateTime?
+  decidedBy       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  user            User      @relation(fields: [userId], references: [id])
+  documents       BusinessDocument[]
+}
+
+model BusinessDocument {
+  id          String          @id @default(cuid())
+  businessId  String
+  docType     String          // kle nan businessTypes.js (egz. "nif", "patente", "statuts")
+  fileData    String          // base64
+  mimeType    String
+  fileName    String?
+  status      String          @default("pending") // "pending" | "accepted" | "rejected"
+  note        String?
+  uploadedAt  DateTime        @default(now())
+  business    BusinessProfile @relation(fields: [businessId], references: [id])
+
+  @@index([businessId])
 }

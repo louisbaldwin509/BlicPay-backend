@@ -4,6 +4,7 @@ import { prisma } from '../utils/db.js';
 import { requireAuth, requireVerified } from '../middleware/auth.js';
 import { generateReference } from '../utils/reference.js';
 import { notifyAdmins } from '../utils/notify.js';
+import { capsFor } from '../utils/businessTypes.js';
 
 export const withdrawalsRouter = Router();
 
@@ -14,9 +15,7 @@ const MIN_WITHDRAWAL_AMOUNT = 250; // montan minimòm pou yon retrè, an HTG
 // Plafon retrè — sèlman aplike sou lajan ki PA soti nan yon pòch Sòl (wè
 // `solPayoutBalance` pi ba a). Yon moun ki fèk resevwa yon gwo pòch Sòl ka
 // toujou retire l antye menm jou a, san limit sa yo bloke l.
-const DAILY_CAP = 80_000;
-const WEEKLY_CAP = 300_000;
-const MONTHLY_CAP = 500_000;
+// Plafon yo depann de kalite kont lan — gade WITHDRAWAL_CAPS nan utils/businessTypes.js.
 
 function startOfToday() {
   const d = new Date();
@@ -85,7 +84,7 @@ withdrawalsRouter.post('/', requireAuth, requireVerified, async (req, res) => {
 
   const user = await prisma.user.findUnique({
     where: { id: req.user.id },
-    select: { pinHash: true, feeableBalance: true, solPayoutBalance: true, fullName: true },
+    select: { pinHash: true, feeableBalance: true, solPayoutBalance: true, fullName: true, accountType: true, business: { select: { status: true } } },
   });
   if (!user?.pinHash) {
     return res.status(409).json({ error: 'Ou dwe kreye yon kòd PIN anvan ou ka fè yon retrè.' });
@@ -115,6 +114,7 @@ withdrawalsRouter.post('/', requireAuth, requireVerified, async (req, res) => {
       }),
     ]);
 
+    const { daily: DAILY_CAP, weekly: WEEKLY_CAP, monthly: MONTHLY_CAP } = capsFor(user);
     const usedToday = dayAgg._sum.cappedAmount || 0;
     const usedThisWeek = weekAgg._sum.cappedAmount || 0;
     const usedThisMonth = monthAgg._sum.cappedAmount || 0;

@@ -7,13 +7,13 @@ import { requireAuth } from '../middleware/auth.js';
 
 export const authRouter = Router();
 
-function signToken(user) {
+export function signToken(user) {
   return jwt.sign({ sub: user.id, role: user.role }, process.env.JWT_SECRET, {
     expiresIn: '30d',
   });
 }
 
-function publicUser(user) {
+export function publicUser(user) {
   return {
     id: user.id,
     clientId: user.clientId,
@@ -23,12 +23,13 @@ function publicUser(user) {
     branch: user.branch,
     balance: user.balance,
     verified: user.verified,
+    accountType: user.accountType ?? 'personal',
   };
 }
 
 // Kreye yon ID kliyan tankou "BP-482913", epi eseye ankò si li deja pran
 // (ra, men posib ak jenerasyon aleatwa).
-async function generateUniqueClientId() {
+export async function generateUniqueClientId() {
   for (let i = 0; i < 5; i++) {
     const candidate = 'BP-' + Math.floor(100000 + Math.random() * 900000);
     const existing = await prisma.user.findUnique({ where: { clientId: candidate } });
