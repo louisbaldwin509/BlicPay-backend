@@ -27,6 +27,8 @@ model User {
   hireDate     DateTime? // dat ajan an anboche
   photoImage   String?   // foto pwofil ajan an, kòm base64
   photoMimeType String?
+  deletedAt     DateTime? // kliyan an efase kont li (done pèsonèl anonimize — dosye tranzaksyon yo rete jan lalwa mande)
+  deletionReason String?
   feeableBalance Int     @default(0) // konbyen lajan ELEKTWONIK (MonCash, elt.) ki toujou nan kont lan, pa ko retire — sèvi pou deside si frè retrè 1.25% la aplike, san bezwen swiv chak goud endividyèlman
   solPayoutBalance Int   @default(0) // konbyen lajan ki soti nan yon pòch Sòl ki toujou nan kont lan, pa ko retire — egzante de plafon retrè jou/semèn/mwa yo
   solPayouts    SolPayout[]

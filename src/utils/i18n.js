@@ -51,6 +51,11 @@ const ENTRIES = [
   // ---------- Montan / balans ----------
   ['Dat yo pa valab.', 'Dates invalides.', 'Invalid dates.'],
   ['Foto a pa valab.', 'Photo invalide.', 'Invalid photo.'],
+  ['Kont admin ak ajan pa ka efase depi app la.', "Les comptes administrateur et agent ne peuvent pas être supprimés depuis l'app.", "Admin and agent accounts can't be deleted from the app."],
+  ['Ou poko ka efase kont ou — gen operasyon ki toujou an kou.', 'Vous ne pouvez pas encore supprimer votre compte — des opérations sont encore en cours.', "You can't delete your account yet — some operations are still in progress."],
+  ['Yon kliyan efase kont li', 'Un client a supprimé son compte', 'A customer deleted their account'],
+  ['Kont {0} efase pa kliyan an.', 'Compte {0} supprimé par le client.', 'Account {0} deleted by the customer.'],
+  ['Kont {0} efase pa kliyan an. Rezon: {1}', 'Compte {0} supprimé par le client. Raison : {1}', 'Account {0} deleted by the customer. Reason: {1}'],
   ['Foto a twò gwo.', 'La photo est trop lourde.', 'The photo is too large.'],
   ['Montan an pa valab.', 'Montant invalide.', 'Invalid amount.'],
   ['Ou pa gen ase lajan.', "Vous n'avez pas assez d'argent.", "You don't have enough money."],

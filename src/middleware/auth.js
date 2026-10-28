@@ -3,19 +3,34 @@ import { prisma } from '../utils/db.js';
 // Verifies the Authorization: Bearer <token> header and attaches
 // { id, role } to req.user. Rejects the request with 401 if missing
 // or invalid — every protected route depends on this running first.
-export function requireAuth(req, res, next) {
+//
+// Li verifye tou nan baz done a ke kont lan pa bloke ni efase — konsa yon
+// sesyon ki te deja louvri sou yon lòt telefòn sispann mache touswit.
+export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token) {
     return res.status(401).json({ error: 'Ou dwe konekte pou fè sa a.' });
   }
+  let payload;
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = { id: payload.sub, role: payload.role };
-    next();
+    payload = jwt.verify(token, process.env.JWT_SECRET);
   } catch {
     return res.status(401).json({ error: 'Sesyon an ekspire — konekte ankò.' });
   }
+  try {
+    const account = await prisma.user.findUnique({ where: { id: payload.sub }, select: { blocked: true, deletedAt: true } });
+    if (!account || account.deletedAt) {
+      return res.status(401).json({ error: 'Sesyon an ekspire — konekte ankò.' });
+    }
+    if (account.blocked) {
+      return res.status(401).json({ error: 'Kont sa a bloke. Kontakte sipò BLICPay.' });
+    }
+  } catch (err) {
+    return next(err);
+  }
+  req.user = { id: payload.sub, role: payload.role };
+  next();
 }
 // Chain after requireAuth on any admin-only route (SIPÈ admin sèlman —
 // jesyon Sòl, KYC, itilizatè, finans, kreye ajan pou biwo yo, elatriye).
