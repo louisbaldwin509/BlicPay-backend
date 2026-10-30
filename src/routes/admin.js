@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { PROFILE_SELECT } from '../utils/clientProfile.js';
 import { isPrivateBeta } from '../utils/access.js';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../utils/db.js';
@@ -1103,7 +1104,7 @@ adminRouter.get('/users', requireAdmin, async (req, res) => {
 adminRouter.get('/users/:id', requireAdmin, async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.params.id },
-    select: { id: true, fullName: true, phone: true, role: true, balance: true, verified: true, blocked: true, betaAccess: true, createdAt: true },
+    select: { id: true, clientId: true, fullName: true, phone: true, role: true, balance: true, verified: true, blocked: true, betaAccess: true, createdAt: true, ...PROFILE_SELECT },
   });
   if (!user) return res.status(404).json({ error: 'Itilizatè a pa jwenn.' });
 

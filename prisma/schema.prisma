@@ -22,13 +22,33 @@ model User {
   creditBanned Boolean   @default(false) // eskli pou tout tan nan Sòl AK Prè sèlman (apre gwo pwoblèm peman) — lòt sèvis yo (depo, retrè, transfè, BLIC Depo) rete aksesib
   pinHash      String?   // kòd PIN 4 chif la (hache, tankou modpas la) — konfime retrè + reverouye app la rapid
   employeeCode String?   @unique // kòd entèn otomatik pou AJAN sèlman, egzanp "AJT-738204"
-  email        String?   @unique // sèlman pou ajan (kontak/rekiperasyon kont)
+  email        String?   @unique // kliyan + ajan (kontak/rekiperasyon kont)
   idNumber     String?   // nimewo pyès idantite ajan an (CIN)
   hireDate     DateTime? // dat ajan an anboche
   photoImage   String?   // foto pwofil ajan an, kòm base64
   photoMimeType String?
   deletedAt     DateTime? // kliyan an efase kont li (done pèsonèl anonimize — dosye tranzaksyon yo rete jan lalwa mande)
   deletionReason String?
+  // Enfòmasyon idantifikasyon kliyan (CIP) — kolekte lè kont lan louvri
+  firstName      String?
+  lastName       String?
+  dateOfBirth    DateTime?
+  gender         String?   // "F" | "M"
+  nationality    String?   // kòd peyi: HT, US, CA, FR, DO, CL, BR, OTHER
+  birthPlace     String?
+  addressLine    String?
+  city           String?
+  department     String?   // depatman Ayiti oswa "abroad"
+  country        String?   // peyi rezidans (menm kòd yo)
+  idType         String?   // "cin" | "nif" | "passport" | "license"
+  idExpiry       DateTime?
+  occupation     String?
+  employer       String?   // anplwayè oswa aktivite
+  sourceOfFunds  String?
+  expectedMonthlyVolume String?
+  isPep          Boolean?  // moun ki ekspoze politikman (PEP)
+  termsAcceptedAt DateTime?
+  termsVersion   String?
   betaAccess    Boolean   @default(false) // mod tès prive: admin bay aksè a (tèstè Google Play / Apple)
   accountType   String    @default("personal") // "personal" | "business"
   business      BusinessProfile?

@@ -5,6 +5,7 @@ import { prisma } from '../utils/db.js';
 import { loginLimiter } from '../middleware/rateLimit.js';
 import { requireAuth } from '../middleware/auth.js';
 import { hasAppAccess, PRIVATE_BETA_MESSAGE } from '../utils/access.js';
+import { parseClientProfile } from '../utils/clientProfile.js';
 
 export const authRouter = Router();
 
@@ -40,23 +41,31 @@ export async function generateUniqueClientId() {
 }
 
 authRouter.post('/register', loginLimiter, async (req, res) => {
-  const { fullName, phone, password } = req.body;
+  const { phone, password } = req.body;
 
-  if (!fullName?.trim() || !phone?.trim() || !password || password.length < 6) {
+  if (!phone?.trim() || !password || password.length < 6) {
     return res.status(400).json({
       error: 'Non, nimewo telefòn, ak yon modpas (6+ karaktè) obligatwa.',
     });
   }
 
-  const existing = await prisma.user.findUnique({ where: { phone } });
+  // Enfòmasyon idantifikasyon kliyan (CIP) — obligatwa pou louvri yon kont.
+  const profile = parseClientProfile(req.body);
+  if (profile.error) return res.status(400).json({ error: profile.error });
+
+  const existing = await prisma.user.findUnique({ where: { phone: phone.trim() } });
   if (existing) {
     return res.status(409).json({ error: 'Yon kont deja egziste ak nimewo sa a.' });
+  }
+  const emailTaken = await prisma.user.findUnique({ where: { email: profile.data.email } });
+  if (emailTaken) {
+    return res.status(409).json({ error: 'Yon kont deja itilize imèl sa a.' });
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
   const clientId = await generateUniqueClientId();
   const user = await prisma.user.create({
-    data: { clientId, fullName: fullName.trim(), phone: phone.trim(), passwordHash },
+    data: { clientId, phone: phone.trim(), passwordHash, ...profile.data },
   });
 
   // Mod tès prive: kont lan kreye, men li pa ka antre jiskaske admin bay aksè.

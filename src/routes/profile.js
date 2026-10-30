@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { requireAuth } from '../middleware/auth.js';
 import { notifyAdmins } from '../utils/notify.js';
+import { PROFILE_SELECT } from '../utils/clientProfile.js';
 
 export const profileRouter = Router();
 profileRouter.use(requireAuth);
@@ -31,6 +32,7 @@ profileRouter.get('/', async (req, res) => {
       photoMimeType: true,
       accountType: true,
       business: { select: { status: true, legalName: true, tradeName: true, legalForm: true } },
+      ...PROFILE_SELECT,
     },
   });
   if (!user) return res.status(404).json({ error: 'Kont lan pa jwenn.' });
