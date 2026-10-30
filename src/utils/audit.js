@@ -40,6 +40,8 @@ async function writeLog(entry) {
 // Mete l sou app.use('/admin', auditMiddleware) AVAN routè admin yo.
 export function auditMiddleware(req, res, next) {
   if (req.method === 'GET' || req.method === 'OPTIONS' || req.method === 'HEAD') return next();
+  // "Make notifikasyon li" pa yon aksyon konfòmite — pa ankonbre jounal la.
+  if (req.path.startsWith('/notifications')) return next();
   const body = sanitize(req.body);
   res.on('finish', () => {
     if (res.statusCode >= 400 || !req.user) return;
