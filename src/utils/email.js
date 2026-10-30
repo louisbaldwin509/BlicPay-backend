@@ -28,6 +28,17 @@ export async function sendEmail({ to, subject, html, text }) {
 // ---------------------------------------------------------------------------
 const ASSETS = process.env.EMAIL_ASSETS_URL || 'https://blicpayht.com/email';
 const WHATSAPP = '+1 307 346 0474';
+// Rezo sosyal BLICPay — sèlman sa ki gen yon lyen parèt nan imèl yo.
+// Lyen yo ka chanje sou Railway (SOCIAL_INSTAGRAM, SOCIAL_FACEBOOK, ...).
+const SOCIALS = [
+  ['instagram', process.env.SOCIAL_INSTAGRAM, 'Instagram'],
+  ['facebook', process.env.SOCIAL_FACEBOOK, 'Facebook'],
+  ['x', process.env.SOCIAL_X, 'X'],
+  ['tiktok', process.env.SOCIAL_TIKTOK, 'TikTok'],
+  ['youtube', process.env.SOCIAL_YOUTUBE, 'YouTube'],
+  ['linkedin', process.env.SOCIAL_LINKEDIN, 'LinkedIn'],
+  ['whatsapp', process.env.SOCIAL_WHATSAPP || 'https://wa.me/13073460474', 'WhatsApp'],
+];
 const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 const FOOT = {
@@ -64,6 +75,7 @@ export function renderEmail({ lang = 'fr', badge, tone = 'green', title, hello, 
   </td></tr>
   <tr><td style="line-height:0;font-size:0;background:#FFFFFF"><img src="${ASSETS}/footer.png" width="560" alt="" style="display:block;width:100%;max-width:560px;height:auto;border:0"></td></tr>
   <tr><td align="center" style="background:#102A5C;padding:6px 30px 30px">
+    ${(() => { const list = SOCIALS.filter(([, url]) => url); return list.length ? `<table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto 18px"><tr>${list.map(([k, url, label]) => `<td style="padding:0 6px"><a href="${esc(url)}"><img src="${ASSETS}/social-${k}.png" width="36" height="36" alt="${label}" style="display:block;border:0"></a></td>`).join('')}</tr></table>` : ''; })()}
     <p style="margin:0;${font};font-size:13px;line-height:20px;color:#DCE6F5">${F.sec}</p>
     <p style="margin:16px 0 0;${font};font-size:13px;color:#FFFFFF"><a href="https://blicpayht.com" style="color:#FFFFFF;text-decoration:none">${F.terms}</a> &nbsp;·&nbsp; <a href="https://blicpayht.com" style="color:#FFFFFF;text-decoration:none">${F.privacy}</a></p>
     <p style="margin:14px 0 0;${font};font-size:12px;color:#8FA3C4">© ${new Date().getFullYear()} BLICPay LLC · blicpayht.com</p>
