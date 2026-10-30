@@ -189,7 +189,8 @@ businessRouter.post('/me/submit', async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN
 // ---------------------------------------------------------------------------
-adminBusinessRouter.use(requireAuth, requireAdmin);
+// Sèlman wout /businesses yo — pa tout /admin (sinon ajan yo bloke nan tout panèl la).
+adminBusinessRouter.use('/businesses', requireAuth, requireAdmin);
 
 adminBusinessRouter.get('/businesses', async (req, res) => {
   const status = typeof req.query.status === 'string' ? req.query.status : undefined;
