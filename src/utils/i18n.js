@@ -62,6 +62,8 @@ const ENTRIES = [
   ['Fichye a twò gwo (maksimòm 5 MB).', 'Le fichier est trop lourd (5 Mo maximum).', 'The file is too large (5 MB maximum).'],
   ['Dosye a pa konplè — ranpli tout enfòmasyon yo epi voye tout dokiman obligatwa yo.', 'Le dossier est incomplet — remplissez toutes les informations et envoyez tous les documents obligatoires.', 'The file is incomplete — fill in all information and upload all required documents.'],
   ['Estati a pa valab.', 'Statut invalide.', 'Invalid status.'],
+  ['Yon nòt obligatwa pou fèmen oswa eskalade yon alèt.', 'Une note est obligatoire pour clôturer ou escalader une alerte.', 'A note is required to close or escalate an alert.'],
+  ['Alèt la pa jwenn.', 'Alerte introuvable.', 'Alert not found.'],
   ['Ekri sa ou bezwen kliyan an voye.', 'Indiquez ce que le client doit envoyer.', 'Write what the customer needs to send.'],
   ['Nouvo dosye antrepriz', 'Nouveau dossier entreprise', 'New business file'],
   ['{0} soumèt dosye antrepriz li pou egzamen.', '{0} a soumis son dossier entreprise pour examen.', '{0} submitted its business file for review.'],

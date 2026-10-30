@@ -28,6 +28,8 @@ import { paymentsRouter } from './routes/payments.js';
 import { translateResponses } from './utils/i18n.js';
 import { profileRouter } from './routes/profile.js';
 import { businessRouter, adminBusinessRouter } from './routes/business.js';
+import { complianceRouter } from './routes/compliance.js';
+import { auditMiddleware, loginAuditMiddleware } from './utils/audit.js';
 const app = express();
 app.set('trust proxy', 1); // Railway mete app la dèyè yon pwoksi — san sa, express-rate-limit plante
 app.use(cors({ origin: (process.env.CORS_ORIGIN || '').split(',') }));
@@ -35,6 +37,9 @@ app.use(express.json({ limit: '10mb' })); // 10mb pou akomode foto dokiman KYC y
 // Tradui erè + notifikasyon yo an Fransè/Anglè selon header X-BLIC-Lang (default Kreyòl).
 app.use(translateResponses);
 app.get('/health', (req, res) => res.json({ ok: true }));
+// Jounal odit: chak aksyon admin/ajan + koneksyon admin/ajan yo.
+app.use('/auth/login', loginAuditMiddleware);
+app.use('/admin', auditMiddleware);
 app.use('/auth', authRouter);
 app.use('/wallet', walletRouter);
 app.use('/deposits', depositsRouter);
@@ -55,6 +60,7 @@ app.use('/notifications', notificationsRouter);
 app.use('/pockets', pocketsRouter);
 app.use('/sol', solRouter);
 app.use('/pin', pinRouter);
+app.use('/admin', complianceRouter);
 app.use('/admin', adminBusinessRouter);
 app.use('/admin', adminRouter);
 app.use('/merchant/auth', merchantAuthRouter);

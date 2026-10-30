@@ -454,3 +454,43 @@ model BusinessDocument {
 
   @@index([businessId])
 }
+
+// JOURNAL ODIT — chak aksyon yon admin/ajan fè (konfime depo, bloke kont,
+// apwouve KYC…) anrejistre otomatikman: kiyès, kisa, kilè, sou kisa.
+// Pa janm modifye ni efase — se tras konfòmite a (egzijans bank patnè yo).
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actorName  String?
+  actorRole  String?
+  method     String   // POST | PATCH | PUT | DELETE | LOGIN
+  path       String   // egz. /admin/deposits/abc123/confirm
+  route      String?  // egz. /deposits/:id/confirm
+  targetId   String?
+  details    Json?    // kò demand lan san done sansib (modpas, PIN, fichye)
+  ip         String?
+  status     Int?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+}
+
+// ALÈT SIVEYANS — kalkile otomatikman sou tranzaksyon yo (gwo montan,
+// vitès, depo-retrè rapid, estriktirasyon…). Yon admin egzamine chak alèt.
+model MonitoringAlert {
+  id         String    @id @default(cuid())
+  key        String    @unique // idantifyan estab règ + operasyon yo (evite doub)
+  rule       String    // large_tx | velocity | rapid_cashout | structuring | unverified_inflow
+  severity   String    // high | medium | low
+  userId     String?
+  amount     Int?
+  details    Json?
+  status     String    @default("open") // open | reviewed | escalated
+  note       String?
+  reviewedBy String?
+  reviewedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([status])
+}

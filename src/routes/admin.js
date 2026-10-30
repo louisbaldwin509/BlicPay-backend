@@ -739,7 +739,7 @@ adminRouter.patch('/reserves/:method', requireAdmin, async (req, res) => {
   const { method } = req.params;
   const { balance } = req.body;
   const numericBalance = Number(balance);
-  if (!['moncash', 'natcash'].includes(method)) {
+  if (!['moncash', 'natcash', 'bank', 'cash'].includes(method)) {
     return res.status(400).json({ error: 'Metòd sa a pa sipòte pou rezèv.' });
   }
   if (!Number.isFinite(numericBalance) || numericBalance < 0) {
