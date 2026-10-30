@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { hasAppAccess, PRIVATE_BETA_MESSAGE } from '../utils/access.js';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../utils/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
@@ -77,6 +78,9 @@ businessRouter.post('/register', loginLimiter, async (req, res) => {
       business: { create: { legalName: legalName.trim().slice(0, 200), legalForm } },
     },
   });
+  if (!hasAppAccess(user)) {
+    return res.status(403).json({ error: PRIVATE_BETA_MESSAGE, code: 'PRIVATE_BETA' });
+  }
   res.status(201).json({ token: signToken(user), user: publicUser(user) });
 });
 

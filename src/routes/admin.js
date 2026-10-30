@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { isPrivateBeta } from '../utils/access.js';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../utils/db.js';
 import { requireAuth, requireAdmin, requireAdminOrAgent } from '../middleware/auth.js';
@@ -1094,7 +1095,7 @@ adminRouter.get('/users', requireAdmin, async (req, res) => {
       ? { OR: [{ fullName: { contains: search } }, { phone: { contains: search } }] }
       : undefined,
     orderBy: { createdAt: 'desc' },
-    select: { id: true, fullName: true, phone: true, role: true, balance: true, verified: true, blocked: true, createdAt: true },
+    select: { id: true, fullName: true, phone: true, role: true, balance: true, verified: true, blocked: true, betaAccess: true, createdAt: true },
   });
   res.json({ users });
 });
@@ -1102,7 +1103,7 @@ adminRouter.get('/users', requireAdmin, async (req, res) => {
 adminRouter.get('/users/:id', requireAdmin, async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.params.id },
-    select: { id: true, fullName: true, phone: true, role: true, balance: true, verified: true, blocked: true, createdAt: true },
+    select: { id: true, fullName: true, phone: true, role: true, balance: true, verified: true, blocked: true, betaAccess: true, createdAt: true },
   });
   if (!user) return res.status(404).json({ error: 'Itilizatè a pa jwenn.' });
 
@@ -1180,6 +1181,18 @@ adminRouter.patch('/users/:id/block', requireAdmin, async (req, res) => {
   const { blocked } = req.body;
   const user = await prisma.user.update({ where: { id: req.params.id }, data: { blocked: !!blocked } });
   res.json({ ok: true, blocked: user.blocked });
+});
+
+// Mod tès prive: bay oswa retire aksè yon kont (tèstè, ekip).
+adminRouter.patch('/users/:id/beta', requireAdmin, async (req, res) => {
+  const user = await prisma.user.update({ where: { id: req.params.id }, data: { betaAccess: !!req.body?.betaAccess } }).catch(() => null);
+  if (!user) return res.status(404).json({ error: 'Itilizatè a pa jwenn.' });
+  res.json({ ok: true, betaAccess: user.betaAccess });
+});
+
+// Admin an wè si mod tès prive a aktif.
+adminRouter.get('/access-mode', requireAdmin, (req, res) => {
+  res.json({ privateBeta: isPrivateBeta() });
 });
 
 adminRouter.patch('/users/:id/verify', requireAdmin, async (req, res) => {

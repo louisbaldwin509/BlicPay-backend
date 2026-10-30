@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { prisma } from '../utils/db.js';
+import { hasAppAccess, PRIVATE_BETA_MESSAGE } from '../utils/access.js';
 // Verifies the Authorization: Bearer <token> header and attaches
 // { id, role } to req.user. Rejects the request with 401 if missing
 // or invalid — every protected route depends on this running first.
@@ -19,12 +20,15 @@ export async function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Sesyon an ekspire — konekte ankò.' });
   }
   try {
-    const account = await prisma.user.findUnique({ where: { id: payload.sub }, select: { blocked: true, deletedAt: true } });
+    const account = await prisma.user.findUnique({ where: { id: payload.sub }, select: { blocked: true, deletedAt: true, role: true, betaAccess: true } });
     if (!account || account.deletedAt) {
       return res.status(401).json({ error: 'Sesyon an ekspire — konekte ankò.' });
     }
     if (account.blocked) {
       return res.status(401).json({ error: 'Kont sa a bloke. Kontakte sipò BLICPay.' });
+    }
+    if (!hasAppAccess(account)) {
+      return res.status(401).json({ error: PRIVATE_BETA_MESSAGE, code: 'PRIVATE_BETA' });
     }
   } catch (err) {
     return next(err);

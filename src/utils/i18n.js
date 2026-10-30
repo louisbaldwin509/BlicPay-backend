@@ -23,6 +23,7 @@ const ENTRIES = [
   ['Yon kont deja egziste ak nimewo sa a.', 'Un compte existe déjà avec ce numéro.', 'An account already exists with this number.'],
   ['Nimewo oswa modpas la pa kòrèk.', 'Numéro ou mot de passe incorrect.', 'Incorrect phone number or password.'],
   ['Imèl oswa modpas la pa kòrèk.', 'E-mail ou mot de passe incorrect.', 'Incorrect email or password.'],
+  ['BLICPay an faz tès prive pou kounye a. Kont ou anrejistre — n ap fè w konnen lè aksè a louvri.', "BLICPay est en phase de test privée pour le moment. Votre compte est enregistré — nous vous préviendrons dès que l'accès sera ouvert.", "BLICPay is in private testing for now. Your account is registered — we'll let you know as soon as access opens."],
   ['Kont sa a bloke. Kontakte sipò BLICPay.', 'Ce compte est bloqué. Contactez le support BLICPay.', 'This account is blocked. Contact BLICPay support.'],
   ['Modpas aktyèl la ak nouvo modpas la obligatwa.', 'Le mot de passe actuel et le nouveau mot de passe sont obligatoires.', 'Current and new passwords are required.'],
   ['Nouvo modpas la dwe gen omwen 6 karaktè.', 'Le nouveau mot de passe doit contenir au moins 6 caractères.', 'The new password must be at least 6 characters.'],

@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '../utils/db.js';
 import { loginLimiter } from '../middleware/rateLimit.js';
 import { requireAuth } from '../middleware/auth.js';
+import { hasAppAccess, PRIVATE_BETA_MESSAGE } from '../utils/access.js';
 
 export const authRouter = Router();
 
@@ -58,6 +59,10 @@ authRouter.post('/register', loginLimiter, async (req, res) => {
     data: { clientId, fullName: fullName.trim(), phone: phone.trim(), passwordHash },
   });
 
+  // Mod tès prive: kont lan kreye, men li pa ka antre jiskaske admin bay aksè.
+  if (!hasAppAccess(user)) {
+    return res.status(403).json({ error: PRIVATE_BETA_MESSAGE, code: 'PRIVATE_BETA' });
+  }
   res.status(201).json({ token: signToken(user), user: publicUser(user) });
 });
 
@@ -74,6 +79,9 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
   }
   if (user.blocked) {
     return res.status(403).json({ error: 'Kont sa a bloke. Kontakte sipò BLICPay.' });
+  }
+  if (!hasAppAccess(user)) {
+    return res.status(403).json({ error: PRIVATE_BETA_MESSAGE, code: 'PRIVATE_BETA' });
   }
 
   // Kont ki te egziste anvan nouvo chan clientId a ka pa gen youn — jenere l
