@@ -6,6 +6,28 @@ import { loginLimiter } from '../middleware/rateLimit.js';
 import { requireAuth } from '../middleware/auth.js';
 import { hasAppAccess, PRIVATE_BETA_MESSAGE } from '../utils/access.js';
 import { parseClientProfile } from '../utils/clientProfile.js';
+import { consumeCode, isTrustedDevice, issueCode, maskEmail, otpApplies, resendCode, trustDevice } from '../utils/emailCodes.js';
+import rateLimit from 'express-rate-limit';
+
+// Kòd imèl: pi lajè pase koneksyon an (moun ka fè erè lè l ap tape), men limite.
+const codeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'Twòp tantativ — tann kèk minit epi eseye ankò.' } });
+const reqLang = (req) => String(req.headers['x-blic-lang'] || 'fr').slice(0, 2);
+
+// Jwenn kont lan ak imèl OSWA nimewo telefòn.
+async function findByIdentifier(raw) {
+  const id = String(raw || '').trim();
+  if (!id) return null;
+  if (id.includes('@')) return prisma.user.findUnique({ where: { email: id.toLowerCase() } });
+  return prisma.user.findUnique({ where: { phone: id } });
+}
+
+async function finishLogin(user, res) {
+  if (!user.clientId) {
+    const clientId = await generateUniqueClientId();
+    user = await prisma.user.update({ where: { id: user.id }, data: { clientId } });
+  }
+  return res.json({ token: signToken(user), user: publicUser(user) });
+}
 
 export const authRouter = Router();
 
@@ -72,35 +94,95 @@ authRouter.post('/register', loginLimiter, async (req, res) => {
   if (!hasAppAccess(user)) {
     return res.status(403).json({ error: PRIVATE_BETA_MESSAGE, code: 'PRIVATE_BETA' });
   }
+  // Konfime imèl la ak yon kòd anvan premye koneksyon an.
+  if (otpApplies(user)) {
+    try {
+      const ch = await issueCode(user, 'verify_email', reqLang(req));
+      return res.status(201).json({ otpRequired: true, challengeId: ch.id, email: maskEmail(user.email) });
+    } catch {
+      return res.status(502).json({ error: 'Nou pa t ka voye imèl la — eseye ankò nan kèk minit.' });
+    }
+  }
   res.status(201).json({ token: signToken(user), user: publicUser(user) });
 });
 
 // Rate-limite: pa plis pase 8 tantativ konneksyon pou menm IP la nan 15 min,
 // pou anpeche yon atak fòs brit sou modpas kliyan yo.
 authRouter.post('/login', loginLimiter, async (req, res) => {
-  const { phone, password } = req.body;
+  const { password, deviceId } = req.body;
+  const identifier = req.body.identifier ?? req.body.phone;
 
-  let user = await prisma.user.findUnique({ where: { phone } });
-  const valid = user && (await bcrypt.compare(password, user.passwordHash));
+  const user = await findByIdentifier(identifier);
+  const valid = user && (await bcrypt.compare(String(password || ''), user.passwordHash));
 
   if (!valid) {
-    return res.status(401).json({ error: 'Nimewo oswa modpas la pa kòrèk.' });
+    return res.status(401).json({ error: 'Idantifyan oswa modpas la pa kòrèk.' });
   }
-  if (user.blocked) {
+  if (user.blocked || user.deletedAt) {
     return res.status(403).json({ error: 'Kont sa a bloke. Kontakte sipò BLICPay.' });
   }
   if (!hasAppAccess(user)) {
     return res.status(403).json({ error: PRIVATE_BETA_MESSAGE, code: 'PRIVATE_BETA' });
   }
 
-  // Kont ki te egziste anvan nouvo chan clientId a ka pa gen youn — jenere l
-  // yon sèl fwa, otomatikman, san moun nan pa remake.
-  if (!user.clientId) {
-    const clientId = await generateUniqueClientId();
-    user = await prisma.user.update({ where: { id: user.id }, data: { clientId } });
+  // Nouvo aparèy → kòd pa imèl anvan nou bay aksè.
+  if (otpApplies(user) && !(await isTrustedDevice(user.id, deviceId))) {
+    try {
+      const ch = await issueCode(user, user.emailVerifiedAt ? 'login' : 'verify_email', reqLang(req));
+      return res.json({ otpRequired: true, challengeId: ch.id, email: maskEmail(user.email) });
+    } catch {
+      return res.status(502).json({ error: 'Nou pa t ka voye imèl la — eseye ankò nan kèk minit.' });
+    }
   }
+  return finishLogin(user, res);
+});
 
-  res.json({ token: signToken(user), user: publicUser(user) });
+// Kliyan an tape kòd li resevwa pa imèl → aparèy la vin "konfyans" epi li konekte.
+authRouter.post('/login/verify', codeLimiter, async (req, res) => {
+  const { challengeId, code, deviceId, deviceLabel } = req.body || {};
+  const row = await prisma.emailCode.findUnique({ where: { id: String(challengeId || '') }, select: { purpose: true } });
+  if (!row || !['login', 'verify_email'].includes(row.purpose)) return res.status(400).json({ error: 'Kòd sa a pa valab ankò — mande yon lòt.' });
+  const r = await consumeCode(challengeId, code, row.purpose);
+  if (r.error) return res.status(400).json({ error: r.error });
+  const user = r.user;
+  if (user.blocked || user.deletedAt) return res.status(403).json({ error: 'Kont sa a bloke. Kontakte sipò BLICPay.' });
+  if (!hasAppAccess(user)) return res.status(403).json({ error: PRIVATE_BETA_MESSAGE, code: 'PRIVATE_BETA' });
+  await trustDevice(user.id, deviceId, deviceLabel);
+  return finishLogin(user, res);
+});
+
+authRouter.post('/code/resend', codeLimiter, async (req, res) => {
+  const r = await resendCode(req.body?.challengeId, reqLang(req));
+  if (r.error) return res.status(400).json({ error: r.error });
+  res.json({ ok: true, challengeId: r.challengeId });
+});
+
+// MODPAS BLIYE — kòd pa imèl, answit nouvo modpas.
+authRouter.post('/password/forgot', codeLimiter, async (req, res) => {
+  const user = await findByIdentifier(req.body?.identifier);
+  // Toujou menm repons — pa revele si yon kont egziste.
+  const generic = { ok: true, challengeId: null, email: null };
+  if (!user || !user.email || user.blocked || user.deletedAt) return res.json(generic);
+  try {
+    const ch = await issueCode(user, 'reset', reqLang(req));
+    return res.json({ ok: true, challengeId: ch.id, email: maskEmail(user.email) });
+  } catch {
+    return res.status(502).json({ error: 'Nou pa t ka voye imèl la — eseye ankò nan kèk minit.' });
+  }
+});
+
+authRouter.post('/password/reset', codeLimiter, async (req, res) => {
+  const { challengeId, code, newPassword } = req.body || {};
+  if (!newPassword || String(newPassword).length < 6) return res.status(400).json({ error: 'Nouvo modpas la dwe gen omwen 6 karaktè.' });
+  const r = await consumeCode(challengeId, code, 'reset');
+  if (r.error) return res.status(400).json({ error: r.error });
+  const passwordHash = await bcrypt.hash(String(newPassword), 10);
+  // Nouvo modpas → tout aparèy dwe konfime ankò.
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: r.user.id }, data: { passwordHash } }),
+    prisma.trustedDevice.deleteMany({ where: { userId: r.user.id } }),
+  ]);
+  res.json({ ok: true });
 });
 
 // Nenpòt itilizatè ki konekte (kliyan, ajan, admin) chanje pwòp modpas li.

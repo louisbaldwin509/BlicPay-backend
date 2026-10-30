@@ -49,6 +49,7 @@ model User {
   isPep          Boolean?  // moun ki ekspoze politikman (PEP)
   termsAcceptedAt DateTime?
   termsVersion   String?
+  emailVerifiedAt DateTime?
   betaAccess    Boolean   @default(false) // mod tès prive: admin bay aksè a (tèstè Google Play / Apple)
   accountType   String    @default("personal") // "personal" | "business"
   business      BusinessProfile?
@@ -69,6 +70,8 @@ model User {
   kycVerifications  KycVerification[]
   verificationRequests VerificationRequest[]
   supportMessages   SupportMessage[]
+  emailCodes        EmailCode[]
+  trustedDevices    TrustedDevice[]
 }
 
 model Deposit {
@@ -514,4 +517,32 @@ model MonitoringAlert {
   createdAt  DateTime  @default(now())
 
   @@index([status])
+}
+
+// Kòd 6 chif voye pa imèl (koneksyon sou nouvo aparèy, konfime imèl, modpas bliye).
+model EmailCode {
+  id         String    @id @default(cuid())
+  userId     String
+  purpose    String    // "login" | "verify_email" | "reset"
+  codeHash   String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+}
+
+// Aparèy (telefòn / navigatè) kliyan an deja konfime ak yon kòd imèl.
+model TrustedDevice {
+  id         String   @id @default(cuid())
+  userId     String
+  deviceHash String
+  label      String?
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceHash])
 }
