@@ -33,6 +33,7 @@ natcashManualRouter.post('/scan', requireAuth, requireVerified, async (req, res)
 // anpeche yon moun kapti yon vre resi men tape yon fo ID, oswa vis vèsa.
 natcashManualRouter.post('/', requireAuth, requireVerified, async (req, res) => {
   const { amount, transactionId, proofImage, proofMimeType } = req.body;
+  const purpose = req.body.purpose === 'kyb_fee' ? 'kyb_fee' : null;
   const numericAmount = Math.round(Number(amount));
 
   if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
@@ -77,6 +78,7 @@ natcashManualRouter.post('/', requireAuth, requireVerified, async (req, res) => 
         userId: req.user.id,
         amount: numericAmount,
         method: 'natcash',
+        purpose,
         reference: generateReference('NAT-'),
         transactionId: transactionId.trim(),
         proofImage,

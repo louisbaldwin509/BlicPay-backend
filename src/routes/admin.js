@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { afterDepositConfirmed } from '../utils/kybFee.js';
 import { PROFILE_SELECT } from '../utils/clientProfile.js';
 import { sendWelcome } from '../utils/email.js';
 import { isPrivateBeta } from '../utils/access.js';
@@ -601,6 +602,7 @@ adminRouter.post('/deposits/:id/confirm', requireAdminOrAgent, async (req, res) 
     body: `Depo ${deposit.amount.toLocaleString('fr-FR')} HTG ou a konfime — lajan an nan balans ou.`,
     type: 'deposit',
   });
+  await afterDepositConfirmed(deposit);
 
   res.json({ ok: true, newBalance: updatedUser.balance });
 });

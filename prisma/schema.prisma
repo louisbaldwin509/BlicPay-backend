@@ -89,6 +89,7 @@ model Deposit {
   transactionId String?   @unique // ID tranzaksyon kliyan an tape a la men (egzanp: pou NatCash) — INIK pou anpeche menm resi a itilize de fwa
   proofImage    String?   // resi/kapti kliyan an telechaje a, kòm base64
   proofMimeType String?
+  purpose       String?   // "kyb_fee" = depo pou peye frè ouvèti kont antrepriz la (pran otomatikman lè l konfime)
   createdAt     DateTime  @default(now())
   confirmedAt   DateTime?
   confirmedBy   String?

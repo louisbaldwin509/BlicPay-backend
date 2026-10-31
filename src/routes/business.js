@@ -8,6 +8,9 @@ import { notifyAdmins, notifyUser } from '../utils/notify.js';
 import { DOCUMENTS, LEGAL_FORMS, TURNOVER_RANGES, WITHDRAWAL_CAPS } from '../utils/businessTypes.js';
 import { generateUniqueClientId, publicUser, signToken } from './auth.js';
 import { KYB_FEE, createKybSession, kybEnabled, refreshKyb, summarizeKyb } from '../utils/diditKyb.js';
+import { chargeKybFee } from '../utils/kybFee.js';
+import { createMoncashPayment } from '../utils/moncash.js';
+import { generateReference } from '../utils/reference.js';
 
 // ---------------------------------------------------------------------------
 // KONT ANTREPRIZ
@@ -125,8 +128,38 @@ businessRouter.get('/me', async (req, res) => {
       status: profile.kybStatus,
       url: profile.kybStatus && !['Approved', 'Declined'].includes(profile.kybStatus) ? profile.kybUrl : null,
       startedAt: profile.kybStartedAt,
+      pendingPayment: !!(await prisma.deposit.findFirst({ where: { userId: req.user.id, purpose: 'kyb_fee', status: 'pending' }, select: { id: true } })),
     },
   });
+});
+
+// Peye frè ouvèti a SÈLMAN (san lanse Didit touswit): ak balans lan, oswa MonCash.
+// (NatCash: kliyan an fè yon depo NatCash ak purpose "kyb_fee" — frè a pran lè admin konfime l.)
+businessRouter.post('/me/kyb/pay', async (req, res) => {
+  const fee = KYB_FEE();
+  const business = await prisma.businessProfile.findUnique({ where: { userId: req.user.id } });
+  if (!business) return res.status(404).json({ error: 'Dosye antrepriz la pa jwenn.' });
+  if (business.kybFeePaidAt || fee <= 0) return res.json({ ok: true, paid: true });
+  const method = req.body?.method;
+  if (method === 'balance') {
+    const r = await chargeKybFee(req.user.id);
+    if (r === 'insufficient') return res.status(402).json({ error: `Balans ou pa ase pou frè ouvèti kont antrepriz la (${fee.toLocaleString('fr-FR')} HTG). Fè yon depo anvan.`, code: 'INSUFFICIENT_BALANCE', fee });
+    return res.json({ ok: true, paid: true });
+  }
+  if (method === 'moncash') {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { verified: true } });
+    if (!user?.verified) return res.status(403).json({ error: 'Ou dwe verifye kont ou (KYC) anvan ou ka fè sa a.' });
+    const reference = generateReference('MCH-');
+    try {
+      const { paymentUrl } = await createMoncashPayment(fee, reference);
+      await prisma.deposit.create({ data: { userId: req.user.id, amount: fee, method: 'moncash', reference, purpose: 'kyb_fee' } });
+      return res.status(201).json({ paymentUrl });
+    } catch (err) {
+      console.error('KYB fee MonCash error:', err);
+      return res.status(502).json({ error: 'Nou pa t kapab kòmanse peman MonCash la — eseye ankò pita.' });
+    }
+  }
+  return res.status(400).json({ error: 'Metòd peman an pa valab.' });
 });
 
 // VERIFIKASYON OTOMATIK ANTREPRIZ (Didit KYB). Premye fwa: frè ouvèti a pran sou
@@ -146,22 +179,10 @@ businessRouter.post('/me/kyb/start', async (req, res) => {
 
   const fee = KYB_FEE();
   if (!business.kybFeePaidAt && fee > 0) {
-    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { balance: true, feeableBalance: true } });
-    if ((user?.balance ?? 0) < fee) {
+    const r = await chargeKybFee(req.user.id);
+    if (r === 'insufficient') {
       return res.status(402).json({ error: `Balans ou pa ase pou frè ouvèti kont antrepriz la (${fee.toLocaleString('fr-FR')} HTG). Fè yon depo anvan.`, code: 'INSUFFICIENT_BALANCE', fee });
     }
-    // Pran frè a yon sèl fwa (tranzaksyon atomik — pa janm de fwa).
-    const charged = await prisma.$transaction(async (tx) => {
-      const fresh = await tx.businessProfile.findUnique({ where: { id: business.id }, select: { kybFeePaidAt: true } });
-      if (fresh.kybFeePaidAt) return false;
-      const u = await tx.user.update({ where: { id: req.user.id, balance: { gte: fee } }, data: { balance: { decrement: fee } } });
-      if (u.feeableBalance > u.balance) await tx.user.update({ where: { id: u.id }, data: { feeableBalance: Math.max(0, u.balance) } });
-      await tx.platformFee.create({ data: { userId: req.user.id, kind: 'business_opening', amount: fee, note: business.legalName } });
-      await tx.businessProfile.update({ where: { id: business.id }, data: { kybFeePaidAt: new Date() } });
-      return true;
-    }).catch(() => null);
-    if (charged === null) return res.status(402).json({ error: 'Balans ou pa ase pou frè ouvèti kont antrepriz la.', code: 'INSUFFICIENT_BALANCE', fee });
-    if (charged) notifyUser(req.user.id, { title: 'Frè ouvèti kont antrepriz', body: `${fee.toLocaleString('fr-FR')} HTG retire sou balans ou pou verifikasyon antrepriz la.`, type: 'wallet' }).catch(() => {});
   }
 
   try {

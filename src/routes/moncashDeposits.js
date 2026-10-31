@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { afterDepositConfirmed } from '../utils/kybFee.js';
 import { prisma } from '../utils/db.js';
 import { requireAuth, requireVerified } from '../middleware/auth.js';
 import { generateReference } from '../utils/reference.js';
@@ -118,6 +119,7 @@ moncashRouter.get('/callback', async (req, res) => {
       body: `Depo MonCash ou (${deposit.amount.toLocaleString('fr-FR')} HTG) konfime — li ajoute nan balans ou.`,
       type: 'deposit',
     });
+    await afterDepositConfirmed(deposit);
 
     res.redirect(`${CLIENT_APP_URL}/depo-konfime`);
   } catch (err) {
