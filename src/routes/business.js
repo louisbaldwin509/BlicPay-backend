@@ -352,7 +352,7 @@ adminBusinessRouter.get('/businesses/:id', async (req, res) => {
     },
   });
   if (!business) return res.status(404).json({ error: 'Dosye antrepriz la pa jwenn.' });
-  res.json({ business, requirements: requirementsFor(business.legalForm), missing: missingFor(business, business.documents) });
+  res.json({ business, requirements: requirementsFor(business.legalForm, business.proCategory), missing: missingFor(business, business.documents) });
 });
 
 adminBusinessRouter.get('/businesses/:id/documents/:docId', async (req, res) => {
