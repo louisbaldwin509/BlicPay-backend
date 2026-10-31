@@ -6,9 +6,9 @@ import { getUsdHtgRate } from './fxRate.js';
 const DIDIT = 'https://verification.didit.me';
 // Frè ouvèti kont antrepriz: fikse an USD (default 100 $), peye an HTG selon tal BRH jounen an
 // (awondi anwo a 10 HTG pre). KYB_FEE_HTG, si li mete, ranplase kalkil la ak yon montan fiks.
-// kind: "pro" (FEE_PRO_USD, default 100 $) oswa "company" (FEE_COMPANY_USD, default 200 $).
+// kind: "pro" (FEE_PRO_USD, default 100 $) oswa "company" (FEE_COMPANY_USD, default 500 $).
 export async function kybFeeQuote(kind = 'company') {
-  const usd = Math.max(0, Number(kind === 'pro' ? (process.env.FEE_PRO_USD ?? 100) : (process.env.FEE_COMPANY_USD ?? 200)) || 0);
+  const usd = Math.max(0, Number(kind === 'pro' ? (process.env.FEE_PRO_USD ?? 100) : (process.env.FEE_COMPANY_USD ?? 500)) || 0);
   const { rate } = await getUsdHtgRate();
   return { htg: Math.ceil((usd * rate) / 10) * 10, usd, rate };
 }
