@@ -1097,7 +1097,7 @@ adminRouter.get('/users', requireAdmin, async (req, res) => {
       ? { OR: [{ fullName: { contains: search } }, { phone: { contains: search } }] }
       : undefined,
     orderBy: { createdAt: 'desc' },
-    select: { id: true, fullName: true, phone: true, role: true, balance: true, verified: true, blocked: true, betaAccess: true, createdAt: true },
+    select: { id: true, clientId: true, email: true, fullName: true, phone: true, role: true, balance: true, verified: true, blocked: true, betaAccess: true, createdAt: true },
   });
   res.json({ users });
 });
