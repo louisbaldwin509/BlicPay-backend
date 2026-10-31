@@ -5,7 +5,9 @@ import { prisma } from '../utils/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { loginLimiter } from '../middleware/rateLimit.js';
 import { notifyAdmins, notifyUser } from '../utils/notify.js';
-import { DOCUMENTS, LEGAL_FORMS, TURNOVER_RANGES, WITHDRAWAL_CAPS } from '../utils/businessTypes.js';
+import { ACCOUNT_PURPOSES, BIZ_FUND_SOURCES, BIZ_MONTHLY_VOLUMES, DOCUMENTS, EMPLOYEE_RANGES, LEGAL_FORMS, TURNOVER_RANGES, WITHDRAWAL_CAPS } from '../utils/businessTypes.js';
+import { parseClientProfile } from '../utils/clientProfile.js';
+import { issueCode, maskEmail, otpApplies } from '../utils/emailCodes.js';
 import { generateUniqueClientId, publicUser, signToken } from './auth.js';
 import { KYB_FEE, kybFeeQuote, createKybSession, kybEnabled, refreshKyb, summarizeKyb } from '../utils/diditKyb.js';
 import { chargeKybFee } from '../utils/kybFee.js';
@@ -23,15 +25,22 @@ export const adminBusinessRouter = Router();
 const EDITABLE = ['draft', 'needs_info', 'rejected'];
 const DOC_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 const MAX_DOC_BASE64 = 7_000_000; // ≈ 5 MB fichye
-const PROFILE_FIELDS = ['legalName', 'tradeName', 'legalForm', 'nif', 'patenteNumber', 'sector', 'address', 'city', 'businessPhone', 'businessEmail', 'website', 'turnoverRange', 'repTitle'];
+const PROFILE_FIELDS = ['legalName', 'tradeName', 'legalForm', 'nif', 'patenteNumber', 'sector', 'address', 'city', 'businessPhone', 'businessEmail', 'website', 'turnoverRange', 'repTitle', 'employeesRange', 'activityDescription', 'accountPurpose', 'expectedMonthlyVolume', 'sourceOfFunds'];
+// Enfòmasyon obligatwa sou antrepriz la (anvan soumisyon ak anvan peman).
+const REQUIRED_FIELDS = ['legalName', 'legalForm', 'nif', 'sector', 'address', 'city', 'businessPhone', 'repTitle', 'turnoverRange', 'employeesRange', 'activityDescription', 'accountPurpose', 'expectedMonthlyVolume', 'sourceOfFunds', 'incorporationDate'];
 
 function cleanFields(body) {
   const data = {};
   for (const k of PROFILE_FIELDS) {
     if (body[k] === undefined) continue;
-    const v = typeof body[k] === 'string' ? body[k].trim().slice(0, 200) : null;
+    const v = typeof body[k] === 'string' ? body[k].trim().slice(0, k === 'activityDescription' ? 600 : 200) : null;
     data[k] = v || null;
   }
+  if (body.incorporationDate !== undefined) {
+    const d = body.incorporationDate ? new Date(String(body.incorporationDate)) : null;
+    data.incorporationDate = d && !Number.isNaN(d.getTime()) && d.getTime() <= Date.now() ? d : null;
+  }
+  if (typeof body.foreignActivity === 'boolean') data.foreignActivity = body.foreignActivity;
   return data;
 }
 
@@ -43,7 +52,7 @@ function requirementsFor(legalForm) {
 // Ki sa ki manke anvan dosye a ka soumèt.
 function missingFor(profile, docs) {
   const missing = [];
-  for (const k of ['legalName', 'legalForm', 'nif', 'address', 'city']) if (!profile[k]) missing.push(`field:${k}`);
+  for (const k of REQUIRED_FIELDS) if (!profile[k]) missing.push(`field:${k}`);
   const { required } = requirementsFor(profile.legalForm);
   for (const d of required) {
     if (!docs.some((x) => x.docType === d && x.status !== 'rejected')) missing.push(`doc:${d}`);
@@ -55,35 +64,61 @@ const DOC_META = { id: true, docType: true, mimeType: true, fileName: true, stat
 
 // ---------- Piblik ----------
 businessRouter.get('/types', (req, res) => {
-  res.json({ legalForms: LEGAL_FORMS, documents: DOCUMENTS, turnoverRanges: TURNOVER_RANGES, caps: WITHDRAWAL_CAPS });
+  res.json({ legalForms: LEGAL_FORMS, documents: DOCUMENTS, turnoverRanges: TURNOVER_RANGES, caps: WITHDRAWAL_CAPS, employeeRanges: EMPLOYEE_RANGES, fundSources: BIZ_FUND_SOURCES, accountPurposes: ACCOUNT_PURPOSES, monthlyVolumes: BIZ_MONTHLY_VOLUMES });
 });
 
 // Kreye yon NOUVO kont antrepriz (reprezantan legal la + non biznis la).
 businessRouter.post('/register', loginLimiter, async (req, res) => {
-  const { fullName, phone, password, legalName, legalForm } = req.body || {};
-  if (!fullName?.trim() || !phone?.trim() || !password || password.length < 6) {
+  const body = req.body || {};
+  const { phone, password } = body;
+  if (!phone?.trim() || !password || password.length < 6) {
     return res.status(400).json({ error: 'Non, nimewo telefòn, ak yon modpas (6+ karaktè) obligatwa.' });
   }
-  if (!legalName?.trim() || !LEGAL_FORMS[legalForm]) {
+  // 1) Reprezantan legal la: menm enfòmasyon idantifikasyon ak yon kliyan (CIP).
+  const rep = parseClientProfile(body);
+  if (rep.error) return res.status(400).json({ error: rep.error });
+  // 2) Antrepriz la.
+  const company = cleanFields(body.company || {});
+  if (!company.legalName || !LEGAL_FORMS[company.legalForm]) {
     return res.status(400).json({ error: 'Non antrepriz la ak fòm legal la obligatwa.' });
   }
+  if (company.turnoverRange && !TURNOVER_RANGES[company.turnoverRange]) company.turnoverRange = null;
+  if (company.employeesRange && !EMPLOYEE_RANGES[company.employeesRange]) company.employeesRange = null;
+  if (company.sourceOfFunds && !BIZ_FUND_SOURCES[company.sourceOfFunds]) company.sourceOfFunds = null;
+  if (company.accountPurpose && !ACCOUNT_PURPOSES[company.accountPurpose]) company.accountPurpose = null;
+  if (company.expectedMonthlyVolume && !BIZ_MONTHLY_VOLUMES[company.expectedMonthlyVolume]) company.expectedMonthlyVolume = null;
+  const missing = REQUIRED_FIELDS.filter((k) => !company[k]);
+  if (missing.length) return res.status(400).json({ error: 'Ranpli tout enfòmasyon obligatwa sou antrepriz la.', missing: missing.map((k) => `field:${k}`) });
+
   const existing = await prisma.user.findUnique({ where: { phone: phone.trim() } });
   if (existing) return res.status(409).json({ error: 'Yon kont deja egziste ak nimewo sa a.' });
+  const emailTaken = await prisma.user.findUnique({ where: { email: rep.data.email } });
+  if (emailTaken) return res.status(409).json({ error: 'Yon kont deja itilize imèl sa a.' });
 
   const passwordHash = await bcrypt.hash(password, 10);
   const clientId = await generateUniqueClientId();
+  const lang = String(req.headers['x-blic-lang'] || 'fr').slice(0, 2);
   const user = await prisma.user.create({
     data: {
       clientId,
-      fullName: fullName.trim(),
       phone: phone.trim(),
       passwordHash,
+      ...rep.data,
+      preferredLang: lang,
       accountType: 'business',
-      business: { create: { legalName: legalName.trim().slice(0, 200), legalForm } },
+      business: { create: company },
     },
   });
   if (!hasAppAccess(user)) {
     return res.status(403).json({ error: PRIVATE_BETA_MESSAGE, code: 'PRIVATE_BETA' });
+  }
+  if (otpApplies(user)) {
+    try {
+      const ch = await issueCode(user, 'verify_email', lang);
+      return res.status(201).json({ otpRequired: true, challengeId: ch.id, email: maskEmail(user.email) });
+    } catch {
+      return res.status(502).json({ error: 'Nou pa t ka voye imèl la — eseye ankò nan kèk minit.' });
+    }
   }
   res.status(201).json({ token: signToken(user), user: publicUser(user) });
 });
@@ -140,6 +175,11 @@ businessRouter.post('/me/kyb/pay', async (req, res) => {
   const business = await prisma.businessProfile.findUnique({ where: { userId: req.user.id } });
   if (!business) return res.status(404).json({ error: 'Dosye antrepriz la pa jwenn.' });
   if (business.kybFeePaidAt || fee <= 0) return res.json({ ok: true, paid: true });
+  // Enfòmasyon ak dokiman yo dwe konplè e soumèt ANVAN peman an.
+  const docs = await prisma.businessDocument.findMany({ where: { businessId: business.id }, select: { docType: true, status: true } });
+  if (business.status === 'draft' || missingFor(business, docs).length > 0) {
+    return res.status(400).json({ error: 'Ranpli epi soumèt dosye antrepriz la anvan ou peye.', code: 'FILE_INCOMPLETE' });
+  }
   const method = req.body?.method;
   if (method === 'balance') {
     const r = await chargeKybFee(req.user.id);

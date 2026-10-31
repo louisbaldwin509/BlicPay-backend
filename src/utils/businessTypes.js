@@ -65,6 +65,34 @@ export const LEGAL_FORMS = {
   },
 };
 
+export const EMPLOYEE_RANGES = {
+  '1': { ht: '1 moun (mwen sèl)', fr: '1 personne (moi seul)', en: '1 person (just me)' },
+  '2_10': { ht: '2 – 10', fr: '2 – 10', en: '2 – 10' },
+  '11_50': { ht: '11 – 50', fr: '11 – 50', en: '11 – 50' },
+  '51_200': { ht: '51 – 200', fr: '51 – 200', en: '51 – 200' },
+  gt200: { ht: 'Plis pase 200', fr: 'Plus de 200', en: 'More than 200' },
+};
+export const BIZ_FUND_SOURCES = {
+  sales: { ht: 'Lavant pwodwi', fr: 'Ventes de produits', en: 'Product sales' },
+  services: { ht: 'Sèvis', fr: 'Prestations de services', en: 'Services' },
+  investment: { ht: 'Envestisman / kapital asosye yo', fr: 'Apports / capital des associés', en: 'Investment / partners’ capital' },
+  loans: { ht: 'Prè', fr: 'Prêts / financement', en: 'Loans / financing' },
+  other: { ht: 'Lòt', fr: 'Autre', en: 'Other' },
+};
+export const ACCOUNT_PURPOSES = {
+  receive: { ht: 'Resevwa peman kliyan', fr: 'Recevoir les paiements des clients', en: 'Receive customer payments' },
+  suppliers: { ht: 'Peye founisè', fr: 'Payer des fournisseurs', en: 'Pay suppliers' },
+  payroll: { ht: 'Peye anplwaye', fr: 'Payer des employés', en: 'Pay employees' },
+  cards: { ht: 'Kat pou depans antrepriz', fr: 'Cartes pour les dépenses de l’entreprise', en: 'Cards for business expenses' },
+  mixed: { ht: 'Tout sa yo', fr: 'Plusieurs de ces usages', en: 'Several of these' },
+};
+export const BIZ_MONTHLY_VOLUMES = {
+  lt100k: { ht: 'Mwens pase 100 000 HTG', fr: 'Moins de 100 000 HTG', en: 'Less than 100,000 HTG' },
+  '100k_500k': { ht: '100 000 – 500 000 HTG', fr: '100 000 – 500 000 HTG', en: '100,000 – 500,000 HTG' },
+  '500k_2m': { ht: '500 000 – 2 milyon HTG', fr: '500 000 – 2 millions HTG', en: '500,000 – 2 million HTG' },
+  gt2m: { ht: 'Plis pase 2 milyon HTG', fr: 'Plus de 2 millions HTG', en: 'More than 2 million HTG' },
+};
+
 export const TURNOVER_RANGES = {
   lt1m: { ht: 'Mwens pase 1 milyon HTG', fr: 'Moins de 1 million HTG', en: 'Under 1 million HTG' },
   '1m_5m': { ht: '1 – 5 milyon HTG', fr: '1 – 5 millions HTG', en: '1 – 5 million HTG' },

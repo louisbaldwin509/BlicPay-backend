@@ -68,6 +68,8 @@ const ENTRIES = [
   ['Frè ouvèti kont antrepriz ou peye. Ale nan Kont antrepriz pou kòmanse verifikasyon an.', 'Les frais d’ouverture de votre compte entreprise sont payés. Allez dans Compte entreprise pour lancer la vérification.', 'Your business account opening fee is paid. Go to Business account to start the verification.'],
   ['Metòd peman an pa valab.', 'Mode de paiement invalide.', 'Invalid payment method.'],
   ['Peye frè ouvèti kont antrepriz la anvan verifikasyon an.', 'Payez les frais d’ouverture du compte entreprise avant la vérification.', 'Pay the business account opening fee before the verification.'],
+  ['Ranpli tout enfòmasyon obligatwa sou antrepriz la.', "Remplissez toutes les informations obligatoires sur l'entreprise.", 'Fill in all required business information.'],
+  ['Ranpli epi soumèt dosye antrepriz la anvan ou peye.', "Complétez et soumettez le dossier de l'entreprise avant de payer.", 'Complete and submit the business file before paying.'],
   ['Kont sa a bloke. Kontakte sipò BLICPay.', 'Ce compte est bloqué. Contactez le support BLICPay.', 'This account is blocked. Contact BLICPay support.'],
   ['Modpas aktyèl la ak nouvo modpas la obligatwa.', 'Le mot de passe actuel et le nouveau mot de passe sont obligatoires.', 'Current and new passwords are required.'],
   ['Nouvo modpas la dwe gen omwen 6 karaktè.', 'Le nouveau mot de passe doit contenir au moins 6 caractères.', 'The new password must be at least 6 characters.'],

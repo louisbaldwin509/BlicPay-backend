@@ -458,6 +458,13 @@ model BusinessProfile {
   website         String?
   turnoverRange   String?              // "lt1m" | "1m_5m" | "5m_25m" | "gt25m" (HTG pa ane)
   repTitle        String?              // pozisyon reprezantan an (DG, Pwopriyetè...)
+  incorporationDate DateTime?          // dat kreyasyon antrepriz la
+  employeesRange  String?              // "1" | "2_10" | "11_50" | "51_200" | "gt200"
+  activityDescription String?          // sa antrepriz la fè (pwodwi / sèvis)
+  accountPurpose  String?              // pou kisa l ap itilize kont BLICPay la
+  expectedMonthlyVolume String?        // volim mansyèl prevwa (menm kòd ak kliyan yo)
+  sourceOfFunds   String?              // "sales" | "services" | "investment" | "loans" | "other"
+  foreignActivity Boolean?             // fè biznis andeyò Ayiti?
   status          String    @default("draft") // "draft" | "submitted" | "needs_info" | "approved" | "rejected"
   adminNote       String?              // rezon refi oswa sa admin mande anplis
   submittedAt     DateTime?

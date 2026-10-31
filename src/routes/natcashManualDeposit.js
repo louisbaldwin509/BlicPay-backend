@@ -34,6 +34,10 @@ natcashManualRouter.post('/scan', requireAuth, requireVerified, async (req, res)
 natcashManualRouter.post('/', requireAuth, requireVerified, async (req, res) => {
   const { amount, transactionId, proofImage, proofMimeType } = req.body;
   const purpose = req.body.purpose === 'kyb_fee' ? 'kyb_fee' : null;
+  if (purpose) {
+    const biz = await prisma.businessProfile.findUnique({ where: { userId: req.user.id }, select: { status: true } });
+    if (!biz || biz.status === 'draft') return res.status(400).json({ error: 'Ranpli epi soumèt dosye antrepriz la anvan ou peye.', code: 'FILE_INCOMPLETE' });
+  }
   const numericAmount = Math.round(Number(amount));
 
   if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
