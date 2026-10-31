@@ -8,6 +8,7 @@ import { hasAppAccess, PRIVATE_BETA_MESSAGE } from '../utils/access.js';
 import { parseClientProfile } from '../utils/clientProfile.js';
 import { consumeCode, isTrustedDevice, issueCode, maskEmail, otpApplies, resendCode, trustDevice } from '../utils/emailCodes.js';
 import rateLimit from 'express-rate-limit';
+import { sendWelcome } from '../utils/email.js';
 
 // Kòd imèl: pi lajè pase koneksyon an (moun ka fè erè lè l ap tape), men limite.
 const codeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'Twòp tantativ — tann kèk minit epi eseye ankò.' } });
@@ -87,11 +88,12 @@ authRouter.post('/register', loginLimiter, async (req, res) => {
   const passwordHash = await bcrypt.hash(password, 10);
   const clientId = await generateUniqueClientId();
   const user = await prisma.user.create({
-    data: { clientId, phone: phone.trim(), passwordHash, ...profile.data },
+    data: { clientId, phone: phone.trim(), passwordHash, ...profile.data, preferredLang: reqLang(req) },
   });
 
   // Mod tès prive: kont lan kreye, men li pa ka antre jiskaske admin bay aksè.
   if (!hasAppAccess(user)) {
+    sendWelcome('pending', user, reqLang(req));
     return res.status(403).json({ error: PRIVATE_BETA_MESSAGE, code: 'PRIVATE_BETA' });
   }
   // Konfime imèl la ak yon kòd anvan premye koneksyon an.
@@ -148,6 +150,10 @@ authRouter.post('/login/verify', codeLimiter, async (req, res) => {
   if (user.blocked || user.deletedAt) return res.status(403).json({ error: 'Kont sa a bloke. Kontakte sipò BLICPay.' });
   if (!hasAppAccess(user)) return res.status(403).json({ error: PRIVATE_BETA_MESSAGE, code: 'PRIVATE_BETA' });
   await trustDevice(user.id, deviceId, deviceLabel);
+  // Premye imèl konfime → imèl byenveni (yon sèl fwa).
+  if (!user.welcomeSentAt && (await sendWelcome('welcome', user, reqLang(req)))) {
+    await prisma.user.update({ where: { id: user.id }, data: { welcomeSentAt: new Date() } }).catch(() => {});
+  }
   return finishLogin(user, res);
 });
 

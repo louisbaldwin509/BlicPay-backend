@@ -48,15 +48,15 @@ const FOOT = {
 };
 const TONES = { green: ['#DDF5EA', '#178A65'], blue: ['#E3F1FC', '#14608F'], amber: ['#FDF0D9', '#9A6410'], red: ['#FDE4E4', '#A83232'] };
 
-// { lang, badge, tone, title, hello, intro, code, rows: [[label, value]], button: { label, url }, note }
-export function renderEmail({ lang = 'fr', badge, tone = 'green', title, hello, intro, code, rows = [], button, note }) {
+// { lang, badge, tone, title, hello, intro, code, rows: [[label, value]], steps: [[titre, texte]], button: { label, url }, note }
+export function renderEmail({ lang = 'fr', badge, tone = 'green', title, hello, intro, code, rows = [], steps = [], button, note }) {
   const L = FOOT[lang] ? lang : 'fr';
   const F = FOOT[L];
   const [bbg, bfg] = TONES[tone] || TONES.green;
   const font = "font-family:'Helvetica Neue',Helvetica,Arial,sans-serif";
   const rowsHtml = rows.filter(([, v]) => v != null && v !== '').map(([k, v], i) => `
-      <tr><td style="${font};font-size:15px;color:#6B7684;padding:${i ? '14px' : '0'} 0 0">${esc(k)}</td>
-          <td align="right" style="${font};font-size:15px;font-weight:700;color:#0B1B33;white-space:nowrap;padding:${i ? '14px' : '0'} 0 0">${esc(v)}</td></tr>`).join('');
+      <tr><td style="${font};font-size:15px;color:#6B7684;white-space:nowrap;padding:${i ? '14px' : '0'} 16px 0 0">${esc(k)}</td>
+          <td align="right" style="${font};font-size:15px;font-weight:700;color:#0B1B33;word-break:break-word;padding:${i ? '14px' : '0'} 0 0">${esc(v)}</td></tr>`).join('');
   return `<!doctype html><html lang="${L}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>${esc(title)}</title></head>
 <body style="margin:0;padding:0;background:#EEF2F7">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EEF2F7"><tr><td align="center" style="padding:28px 12px">
@@ -69,6 +69,7 @@ export function renderEmail({ lang = 'fr', badge, tone = 'green', title, hello, 
     ${intro ? `<p style="margin:${hello ? '6px' : '16px'} 0 0;${font};font-size:16px;line-height:24px;color:#4A5668">${esc(intro)}</p>` : ''}
     ${code ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:24px"><tr><td align="center" style="background:#F1F4F8;border-radius:20px;padding:22px 10px;font-family:'Courier New',Courier,monospace;font-size:38px;font-weight:700;letter-spacing:12px;color:#143A73">${esc(code)}</td></tr></table>` : ''}
     ${rowsHtml ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:${code ? '14px' : '24px'};background:#F1F4F8;border-radius:20px"><tr><td style="padding:22px 26px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rowsHtml}</table></td></tr></table>` : ''}
+    ${steps.length ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:22px">${steps.map(([t, d], i) => `<tr><td valign="top" width="44" style="padding:${i ? '16px' : '0'} 0 0"><div style="width:32px;height:32px;line-height:32px;border-radius:16px;background:#E3F1FC;color:#143A73;text-align:center;${font};font-size:15px;font-weight:800">${i + 1}</div></td><td style="padding:${i ? '16px' : '0'} 0 0"><div style="${font};font-size:16px;font-weight:700;color:#0B1B33;line-height:22px">${esc(t)}</div><div style="${font};font-size:14px;line-height:21px;color:#6B7684;margin-top:3px">${esc(d)}</div></td></tr>`).join('')}</table>` : ''}
     ${button ? `<table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:26px auto 0"><tr><td style="background:#143A73;border-radius:999px"><a href="${esc(button.url)}" style="display:inline-block;padding:16px 38px;${font};font-size:17px;font-weight:700;color:#FFFFFF;text-decoration:none">${esc(button.label)}</a></td></tr></table>` : ''}
     ${note ? `<p style="margin:22px 0 0;${font};font-size:14px;line-height:21px;color:#6B7684">${esc(note)}</p>` : ''}
     <p style="margin:20px 0 34px;${font};font-size:14px;line-height:21px;color:#6B7684">${F.help}&nbsp;<a href="https://wa.me/${WHATSAPP.replace(/\D/g, '')}" style="color:#143A73;font-weight:700;text-decoration:underline;white-space:nowrap">${WHATSAPP}</a></p>
@@ -123,4 +124,68 @@ export function codeEmail(purpose, code, name, lang = 'fr') {
   });
   const text = `${ROWL.hello[L]}${first ? ' ' + first : ''},\n\n${c.intro[L]}\n\n${code}\n\n${ROWL.valid[L]}: ${ROWL.ten[L]}\n${c.note[L]}\n\nBLICPay — WhatsApp ${WHATSAPP}`;
   return { subject: `${c.title[L]} — ${code}`, html, text };
+}
+
+// ---------------------------------------------------------------------------
+// IMÈL BYENVENI — enskripsyon resevwa (tès prive), aksè louvri, kont aktif.
+// ---------------------------------------------------------------------------
+const W = {
+  hello: { ht: 'Bonjou', fr: 'Bonjour', en: 'Hello' },
+  client: { ht: 'Nimewo kliyan', fr: 'Numéro client', en: 'Client number' },
+  email: { ht: 'Imèl', fr: 'E-mail', en: 'Email' },
+  date: { ht: 'Enskri le', fr: 'Inscrit le', en: 'Registered on' },
+  steps: {
+    ht: [['Verifye idantite w', 'Yon foto pyès idantite w ak yon selfi — sa debloke transfè ak retrè.'], ['Rechaje kont ou', 'Pa MonCash, NatCash oswa nan yon ajans BLICPay.'], ['Voye epi resevwa lajan', 'Gratis ant kliyan BLICPay, an kèk segonn.']],
+    fr: [['Vérifiez votre identité', 'Une photo de votre pièce d’identité et un selfie — cela débloque les transferts et les retraits.'], ['Rechargez votre compte', 'Par MonCash, NatCash ou dans une agence BLICPay.'], ['Envoyez et recevez de l’argent', 'Gratuitement entre clients BLICPay, en quelques secondes.']],
+    en: [['Verify your identity', 'A photo of your ID and a selfie — this unlocks transfers and withdrawals.'], ['Top up your account', 'With MonCash, NatCash or at a BLICPay branch.'], ['Send and receive money', 'Free between BLICPay clients, in seconds.']],
+  },
+  welcome: {
+    badge: { ht: 'Byenveni', fr: 'Bienvenue', en: 'Welcome' },
+    title: { ht: 'Byenveni sou BLICPay, {name}', fr: 'Bienvenue chez BLICPay, {name}', en: 'Welcome to BLICPay, {name}' },
+    intro: { ht: 'Kont BLICPay ou aktif kounye a. Men twa etap pou w kòmanse:', fr: 'Votre compte BLICPay est désormais actif. Voici trois étapes pour bien démarrer :', en: 'Your BLICPay account is now active. Here are three steps to get started:' },
+    button: { ht: 'Ouvri kont mwen', fr: 'Accéder à mon compte', en: 'Go to my account' },
+  },
+  pending: {
+    badge: { ht: 'Enskripsyon resevwa', fr: 'Inscription reçue', en: 'Registration received' },
+    title: { ht: 'Kont ou anrejistre', fr: 'Votre compte est enregistré', en: 'Your account is registered' },
+    intro: { ht: 'Mèsi paske w enskri sou BLICPay. Pou kounye a, BLICPay an faz tès prive e aksè a ap louvri piti piti. N ap ekri w touswit kont ou aktive.', fr: 'Merci pour votre inscription sur BLICPay. Le service est actuellement en phase de test privée et l’accès est ouvert progressivement. Nous vous écrirons dès que votre compte sera activé.', en: 'Thank you for signing up for BLICPay. The service is currently in private testing and access is opening gradually. We’ll email you as soon as your account is activated.' },
+    note: { ht: 'Ou pa bezwen fè anyen pou kounye a — enfòmasyon ou yo anrejistre an sekirite.', fr: 'Vous n’avez rien à faire pour le moment : vos informations sont enregistrées en toute sécurité.', en: 'There is nothing you need to do for now — your information is stored securely.' },
+  },
+  access: {
+    badge: { ht: 'Aksè aktive', fr: 'Accès activé', en: 'Access granted' },
+    title: { ht: 'Aksè BLICPay ou louvri', fr: 'Votre accès BLICPay est ouvert', en: 'Your BLICPay access is open' },
+    intro: { ht: 'Bon nouvèl: ou ka konekte sou kont BLICPay ou kounye a ak imèl ou oswa nimewo telefòn ou. Men twa etap pou w kòmanse:', fr: 'Bonne nouvelle : vous pouvez maintenant vous connecter à votre compte BLICPay avec votre e-mail ou votre numéro de téléphone. Voici trois étapes pour bien démarrer :', en: 'Good news: you can now sign in to your BLICPay account with your email or phone number. Here are three steps to get started:' },
+    button: { ht: 'Konekte', fr: 'Me connecter', en: 'Sign in' },
+  },
+};
+
+export function welcomeEmail(kind, user, lang) {
+  const L = ['ht', 'fr', 'en'].includes(lang) ? lang : (['ht', 'fr', 'en'].includes(user.preferredLang) ? user.preferredLang : 'fr');
+  const c = W[kind];
+  const first = (user.firstName || user.fullName || '').trim().split(/\s+/)[0];
+  const date = new Date(user.createdAt || Date.now()).toLocaleDateString(L === 'en' ? 'en-US' : 'fr-FR', { timeZone: 'America/Port-au-Prince', day: '2-digit', month: '2-digit', year: 'numeric' });
+  const title = c.title[L].replace('{name}', first || '').replace(/,\s*$/, '');
+  const html = renderEmail({
+    lang: L, badge: c.badge[L], tone: kind === 'pending' ? 'amber' : 'green', title,
+    hello: kind === 'pending' ? `${W.hello[L]}${first ? ' ' + first : ''},` : undefined,
+    intro: c.intro[L],
+    rows: [[W.client[L], user.clientId], [W.email[L], user.email], [W.date[L], date]],
+    steps: kind === 'pending' ? [] : W.steps[L],
+    button: c.button ? { label: c.button[L], url: 'https://blicpayht.com' } : undefined,
+    note: c.note?.[L],
+  });
+  const text = `${title}\n\n${c.intro[L]}\n\n${kind === 'pending' ? '' : W.steps[L].map(([t, d], i) => `${i + 1}. ${t} — ${d}`).join('\n')}\n\nhttps://blicpayht.com`;
+  return { subject: title, html, text };
+}
+
+// Voye san janm kase operasyon an.
+export async function sendWelcome(kind, user, lang) {
+  if (!emailEnabled() || !user?.email) return false;
+  try {
+    await sendEmail({ to: user.email, ...welcomeEmail(kind, user, lang) });
+    return true;
+  } catch (e) {
+    console.error('[email] welcome', kind, e.message);
+    return false;
+  }
 }

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { PROFILE_SELECT } from '../utils/clientProfile.js';
+import { sendWelcome } from '../utils/email.js';
 import { isPrivateBeta } from '../utils/access.js';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../utils/db.js';
@@ -1186,8 +1187,13 @@ adminRouter.patch('/users/:id/block', requireAdmin, async (req, res) => {
 
 // Mod tès prive: bay oswa retire aksè yon kont (tèstè, ekip).
 adminRouter.patch('/users/:id/beta', requireAdmin, async (req, res) => {
+  const before = await prisma.user.findUnique({ where: { id: req.params.id }, select: { betaAccess: true } });
   const user = await prisma.user.update({ where: { id: req.params.id }, data: { betaAccess: !!req.body?.betaAccess } }).catch(() => null);
   if (!user) return res.status(404).json({ error: 'Itilizatè a pa jwenn.' });
+  // Aksè louvri pou premye fwa → imèl "Aksè BLICPay ou louvri" (ranplase imèl byenveni a).
+  if (user.betaAccess && !before?.betaAccess && user.role === 'member' && (await sendWelcome('access', user))) {
+    await prisma.user.update({ where: { id: user.id }, data: { welcomeSentAt: new Date() } }).catch(() => {});
+  }
   res.json({ ok: true, betaAccess: user.betaAccess });
 });
 
