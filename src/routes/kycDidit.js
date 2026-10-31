@@ -89,7 +89,7 @@ kycDiditRouter.get('/status', requireAuth, async (req, res) => {
 // Authorization: Bearer <token> BLICPay, kidonk pa gen requireAuth isit la.
 kycDiditRouter.post('/webhook', async (req, res) => {
   try {
-    const sessionId = req.body.session_id || req.body.sessionId;
+    const sessionId = req.body.session_id || req.body.sessionId || req.body.business_session_id;
     if (!sessionId) {
       return res.status(400).json({ error: 'session_id manke.' });
     }
