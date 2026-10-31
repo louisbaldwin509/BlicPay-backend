@@ -73,6 +73,8 @@ const ENTRIES = [
   ['Kont Pwo yo verifye pa ekip BLICPay la — pa gen verifikasyon otomatik.', 'Les comptes Pro sont vérifiés par l’équipe BLICPay — pas de vérification automatique.', 'Pro accounts are reviewed by the BLICPay team — no automatic verification.'],
   ['Frè ouvèti a poko peye — ou pa ka apwouve dosye sa a.', 'Les frais d’ouverture ne sont pas encore payés — impossible d’approuver ce dossier.', 'The opening fee has not been paid — this file cannot be approved yet.'],
   ['Kont Pwo peye — pou egzamine', 'Compte Pro payé — à examiner', 'Pro account paid — to review'],
+  ['Kont Pwo apwouve', 'Compte Pro approuvé', 'Pro account approved'],
+  ['Kont Pwo {0} apwouve. Nouvo plafon ou yo ak resepsyon peman aktive.', 'Compte Pro {0} approuvé. Vos nouveaux plafonds et l’encaissement sont activés.', 'Pro account {0} approved. Your new limits and payment collection are now active.'],
   ['Kont sa a bloke. Kontakte sipò BLICPay.', 'Ce compte est bloqué. Contactez le support BLICPay.', 'This account is blocked. Contact BLICPay support.'],
   ['Modpas aktyèl la ak nouvo modpas la obligatwa.', 'Le mot de passe actuel et le nouveau mot de passe sont obligatoires.', 'Current and new passwords are required.'],
   ['Nouvo modpas la dwe gen omwen 6 karaktè.', 'Le nouveau mot de passe doit contenir au moins 6 caractères.', 'The new password must be at least 6 characters.'],

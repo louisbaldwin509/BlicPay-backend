@@ -382,9 +382,12 @@ async function decide(req, res, status, title, body) {
 }
 
 adminBusinessRouter.post('/businesses/:id/approve', async (req, res) => {
-  const b = await prisma.businessProfile.findUnique({ where: { id: req.params.id }, select: { kybFeePaidAt: true } });
-  if (b && !b.kybFeePaidAt && (await KYB_FEE('pro')) > 0) return res.status(409).json({ error: 'Frè ouvèti a poko peye — ou pa ka apwouve dosye sa a.' });
-  return decide(req, res, 'approved', 'Kont antrepriz apwouve', (x) => `Kont antrepriz ${x.tradeName || x.legalName} apwouve. Plafon antrepriz yo ak resepsyon peman aktive.`);
+  const b = await prisma.businessProfile.findUnique({ where: { id: req.params.id }, select: { kybFeePaidAt: true, legalForm: true } });
+  if (b && !b.kybFeePaidAt && (await KYB_FEE(feeKind(b))) > 0) return res.status(409).json({ error: 'Frè ouvèti a poko peye — ou pa ka apwouve dosye sa a.' });
+  const pro = b?.legalForm === 'pro';
+  return decide(req, res, 'approved', pro ? 'Kont Pwo apwouve' : 'Kont antrepriz apwouve', (x) => (pro
+    ? `Kont Pwo ${x.tradeName || x.legalName} apwouve. Nouvo plafon ou yo ak resepsyon peman aktive.`
+    : `Kont antrepriz ${x.tradeName || x.legalName} apwouve. Plafon antrepriz yo ak resepsyon peman aktive.`));
 });
 
 adminBusinessRouter.post('/businesses/:id/reject', (req, res) => {
