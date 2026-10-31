@@ -5,7 +5,7 @@ import { prisma } from '../utils/db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { loginLimiter } from '../middleware/rateLimit.js';
 import { notifyAdmins, notifyUser } from '../utils/notify.js';
-import { ACCOUNT_PURPOSES, BIZ_FUND_SOURCES, BIZ_MONTHLY_VOLUMES, DOCUMENTS, EMPLOYEE_RANGES, LEGAL_FORMS, PRO_BASE_DOCS, PRO_CATEGORIES, PRO_REFUSED, TURNOVER_RANGES, WITHDRAWAL_CAPS } from '../utils/businessTypes.js';
+import { ACCOUNT_PURPOSES, BIZ_FUND_SOURCES, BIZ_MONTHLY_VOLUMES, DOCUMENTS, EMPLOYEE_RANGES, LEGAL_FORMS, PRO_BASE_DOCS, PRO_CATEGORIES, PRO_GROUPS, PRO_REFUSED, TURNOVER_RANGES, WITHDRAWAL_CAPS } from '../utils/businessTypes.js';
 import { parseClientProfile } from '../utils/clientProfile.js';
 import { issueCode, maskEmail, otpApplies } from '../utils/emailCodes.js';
 import { generateUniqueClientId, publicUser, signToken } from './auth.js';
@@ -75,7 +75,7 @@ const DOC_META = { id: true, docType: true, mimeType: true, fileName: true, stat
 
 // ---------- Piblik ----------
 businessRouter.get('/types', (req, res) => {
-  res.json({ legalForms: LEGAL_FORMS, documents: DOCUMENTS, turnoverRanges: TURNOVER_RANGES, caps: WITHDRAWAL_CAPS, employeeRanges: EMPLOYEE_RANGES, fundSources: BIZ_FUND_SOURCES, accountPurposes: ACCOUNT_PURPOSES, monthlyVolumes: BIZ_MONTHLY_VOLUMES, proCategories: PRO_CATEGORIES, proRefused: PRO_REFUSED });
+  res.json({ legalForms: LEGAL_FORMS, documents: DOCUMENTS, turnoverRanges: TURNOVER_RANGES, caps: WITHDRAWAL_CAPS, employeeRanges: EMPLOYEE_RANGES, fundSources: BIZ_FUND_SOURCES, accountPurposes: ACCOUNT_PURPOSES, monthlyVolumes: BIZ_MONTHLY_VOLUMES, proCategories: PRO_CATEGORIES, proGroups: PRO_GROUPS, proRefused: PRO_REFUSED });
 });
 
 // Kreye yon NOUVO kont antrepriz (reprezantan legal la + non biznis la).
