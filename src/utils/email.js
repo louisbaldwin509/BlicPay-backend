@@ -28,16 +28,17 @@ export async function sendEmail({ to, subject, html, text }) {
 // ---------------------------------------------------------------------------
 const ASSETS = process.env.EMAIL_ASSETS_URL || 'https://blicpayht.com/email';
 const WHATSAPP = '+1 307 346 0474';
-// Rezo sosyal BLICPay — sèlman sa ki gen yon lyen parèt nan imèl yo.
-// Lyen yo ka chanje sou Railway (SOCIAL_INSTAGRAM, SOCIAL_FACEBOOK, ...).
+// Rezo sosyal BLICPay — toujou parèt nan tout imèl yo. Tank lyen reyèl la
+// pa mete sou Railway (SOCIAL_INSTAGRAM, SOCIAL_FACEBOOK, ...), bouton an mennen sou sit la.
+const SITE = 'https://blicpayht.com';
 const SOCIALS = [
-  ['instagram', process.env.SOCIAL_INSTAGRAM, 'Instagram'],
-  ['facebook', process.env.SOCIAL_FACEBOOK, 'Facebook'],
-  ['x', process.env.SOCIAL_X, 'X'],
-  ['tiktok', process.env.SOCIAL_TIKTOK, 'TikTok'],
-  ['youtube', process.env.SOCIAL_YOUTUBE, 'YouTube'],
-  ['linkedin', process.env.SOCIAL_LINKEDIN, 'LinkedIn'],
+  ['instagram', process.env.SOCIAL_INSTAGRAM || SITE, 'Instagram'],
+  ['facebook', process.env.SOCIAL_FACEBOOK || SITE, 'Facebook'],
+  ['x', process.env.SOCIAL_X || SITE, 'X'],
+  ['tiktok', process.env.SOCIAL_TIKTOK || SITE, 'TikTok'],
+  ['linkedin', process.env.SOCIAL_LINKEDIN || SITE, 'LinkedIn'],
   ['whatsapp', process.env.SOCIAL_WHATSAPP || 'https://wa.me/13073460474', 'WhatsApp'],
+  ...(process.env.SOCIAL_YOUTUBE ? [['youtube', process.env.SOCIAL_YOUTUBE, 'YouTube']] : []),
 ];
 const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -56,7 +57,7 @@ export function renderEmail({ lang = 'fr', badge, tone = 'green', title, hello, 
   const font = "font-family:'Helvetica Neue',Helvetica,Arial,sans-serif";
   const rowsHtml = rows.filter(([, v]) => v != null && v !== '').map(([k, v], i) => `
       <tr><td style="${font};font-size:15px;color:#6B7684;white-space:nowrap;padding:${i ? '14px' : '0'} 16px 0 0">${esc(k)}</td>
-          <td align="right" style="${font};font-size:15px;font-weight:700;color:#0B1B33;word-break:break-word;padding:${i ? '14px' : '0'} 0 0">${esc(v)}</td></tr>`).join('');
+          <td align="right" style="${font};font-size:15px;font-weight:700;color:#0B1B33;white-space:nowrap;padding:${i ? '14px' : '0'} 0 0">${esc(v)}</td></tr>`).join('');
   return `<!doctype html><html lang="${L}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>${esc(title)}</title></head>
 <body style="margin:0;padding:0;background:#EEF2F7">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EEF2F7"><tr><td align="center" style="padding:28px 12px">
