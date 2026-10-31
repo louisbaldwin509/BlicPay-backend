@@ -2,14 +2,14 @@
 // ak balans BLICPay li, oswa ak yon depo MonCash / NatCash ki make "kyb_fee":
 // depo a kredite balans lan, epi frè a pran otomatikman lè depo a konfime.
 import { prisma } from './db.js';
-import { KYB_FEE } from './diditKyb.js';
-import { notifyUser } from './notify.js';
+import { KYB_FEE, feeKind } from './diditKyb.js';
+import { notifyAdmins, notifyUser } from './notify.js';
 
 // Retounen 'charged' | 'already' | 'insufficient' | 'nobusiness'
 export async function chargeKybFee(userId) {
-  const fee = await KYB_FEE();
   const business = await prisma.businessProfile.findUnique({ where: { userId } });
   if (!business) return 'nobusiness';
+  const fee = await KYB_FEE(feeKind(business));
   if (business.kybFeePaidAt || fee <= 0) return 'already';
   const result = await prisma.$transaction(async (tx) => {
     const fresh = await tx.businessProfile.findUnique({ where: { id: business.id }, select: { kybFeePaidAt: true } });
@@ -24,6 +24,7 @@ export async function chargeKybFee(userId) {
   });
   if (result === 'charged') {
     notifyUser(userId, { title: 'Frè ouvèti kont antrepriz', body: `${fee.toLocaleString('fr-FR')} HTG retire sou balans ou pou verifikasyon antrepriz la.`, type: 'wallet' }).catch(() => {});
+    if (business.legalForm === 'pro') notifyAdmins({ title: 'Kont Pwo peye — pou egzamine', body: `${business.tradeName || business.legalName} peye frè ouvèti a. Dosye a pare pou egzamen.`, type: 'kyc' }).catch(() => {});
   }
   return result;
 }

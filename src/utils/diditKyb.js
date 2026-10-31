@@ -6,16 +6,14 @@ import { getUsdHtgRate } from './fxRate.js';
 const DIDIT = 'https://verification.didit.me';
 // Frè ouvèti kont antrepriz: fikse an USD (default 100 $), peye an HTG selon tal BRH jounen an
 // (awondi anwo a 10 HTG pre). KYB_FEE_HTG, si li mete, ranplase kalkil la ak yon montan fiks.
-export async function kybFeeQuote() {
-  if (process.env.KYB_FEE_HTG) {
-    const htg = Math.max(0, parseInt(process.env.KYB_FEE_HTG, 10) || 0);
-    return { htg, usd: null, rate: null };
-  }
-  const usd = Math.max(0, Number(process.env.KYB_FEE_USD ?? 100) || 0);
+// kind: "pro" (FEE_PRO_USD, default 100 $) oswa "company" (FEE_COMPANY_USD, default 200 $).
+export async function kybFeeQuote(kind = 'company') {
+  const usd = Math.max(0, Number(kind === 'pro' ? (process.env.FEE_PRO_USD ?? 100) : (process.env.FEE_COMPANY_USD ?? 200)) || 0);
   const { rate } = await getUsdHtgRate();
   return { htg: Math.ceil((usd * rate) / 10) * 10, usd, rate };
 }
-export const KYB_FEE = async () => (await kybFeeQuote()).htg;
+export const feeKind = (business) => (business?.legalForm === 'pro' ? 'pro' : 'company');
+export const KYB_FEE = async (kind) => (await kybFeeQuote(kind)).htg;
 export const kybEnabled = () => !!(process.env.DIDIT_API_KEY && process.env.DIDIT_KYB_WORKFLOW_ID);
 
 export async function createKybSession(business) {

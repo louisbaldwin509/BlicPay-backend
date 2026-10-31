@@ -465,6 +465,11 @@ model BusinessProfile {
   expectedMonthlyVolume String?        // volim mansyèl prevwa (menm kòd ak kliyan yo)
   sourceOfFunds   String?              // "sales" | "services" | "investment" | "loans" | "other"
   foreignActivity Boolean?             // fè biznis andeyò Ayiti?
+  // KONT PWO (endepandan / ti komès): legalForm = "pro"
+  proCategory     String?              // gade PRO_CATEGORIES (businessTypes.js)
+  proMode         String?              // "physical" | "online"
+  proPageUrl      String?              // paj an liy (si "online")
+  proVerifyCode   String?              // kòd "BLICPAY-1234" pou mete nan bio paj la
   status          String    @default("draft") // "draft" | "submitted" | "needs_info" | "approved" | "rejected"
   adminNote       String?              // rezon refi oswa sa admin mande anplis
   submittedAt     DateTime?
