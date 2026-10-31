@@ -43,9 +43,10 @@ walletRouter.get('/transactions', requireAuth, async (req, res) => {
   if (range === 'invalid') return res.status(400).json({ error: 'Dat yo pa valab.' });
   const where = { userId: req.user.id, ...(range ? { createdAt: range } : {}) };
   const take = range ? RANGE_LIMIT : 50;
-  const [deposits, withdrawals] = await Promise.all([
+  const [deposits, withdrawals, fees] = await Promise.all([
     prisma.deposit.findMany({ where, orderBy: { createdAt: 'desc' }, take }),
     prisma.withdrawal.findMany({ where, orderBy: { createdAt: 'desc' }, take }),
+    prisma.platformFee.findMany({ where, orderBy: { createdAt: 'desc' }, take }),
   ]);
 
   const merged = [
@@ -64,6 +65,15 @@ walletRouter.get('/transactions', requireAuth, async (req, res) => {
       amount: w.amount,
       status: w.status,
       createdAt: w.createdAt,
+    })),
+    // Frè BLICPay (egz. ouvèti kont antrepriz) — parèt kòm yon sòti lajan.
+    ...fees.map((f) => ({
+      id: f.id,
+      type: 'retrè',
+      method: 'frè',
+      amount: f.amount,
+      status: 'confirmed',
+      createdAt: f.createdAt,
     })),
   ]
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))

@@ -3,6 +3,7 @@ import { prisma } from '../utils/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { notifyUser, notifyAdmins } from '../utils/notify.js';
 import { diditStartLimiter } from '../middleware/rateLimit.js';
+import { refreshKyb } from '../utils/diditKyb.js';
 
 export const kycDiditRouter = Router();
 
@@ -95,6 +96,16 @@ kycDiditRouter.post('/webhook', async (req, res) => {
 
     const verification = await prisma.kycVerification.findUnique({ where: { diditSessionId: sessionId } });
     if (!verification) {
+      // Sesyon antrepriz (KYB)?
+      const biz = await prisma.businessProfile.findUnique({ where: { kybSessionId: sessionId } });
+      if (biz) {
+        const u = await refreshKyb(biz).catch(() => null);
+        if (u && ['Approved', 'Declined', 'In Review'].includes(u.kybStatus)) {
+          await notifyAdmins({ title: 'Rezilta verifikasyon antrepriz', body: `Didit KYB ${biz.legalName} — estati: ${u.kybStatus}.`, type: 'kyc' }).catch(() => {});
+          await notifyUser(biz.userId, { title: 'Verifikasyon antrepriz resevwa', body: 'Nou resevwa rezilta verifikasyon antrepriz ou — ekip BLICPay ap egzamine l.', type: 'kyc' }).catch(() => {});
+        }
+        return res.status(200).json({ ok: true });
+      }
       // Sesyon nou pa rekonèt — aksepte l san erè pou Didit pa reeseye plizyè fwa,
       // men n ap log li pou nou ka egzamine l pita.
       console.warn('Didit webhook: unknown session_id', sessionId);

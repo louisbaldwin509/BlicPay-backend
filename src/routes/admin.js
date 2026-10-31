@@ -486,6 +486,8 @@ adminRouter.get('/finance/summary', requireAdminOrAgent, async (req, res) => {
     });
   }
 
+  const feeAgg = await prisma.platformFee.aggregate({ where: { kind: 'business_opening', ...(start ? { createdAt: { gte: start } } : {}) }, _sum: { amount: true } });
+  const businessOpeningFees = feeAgg._sum.amount || 0;
   res.json({
     period,
     since: start,
@@ -493,8 +495,9 @@ adminRouter.get('/finance/summary', requireAdminOrAgent, async (req, res) => {
       solIntegrationFees,
       solPenalties,
       withdrawalFees,
+      businessOpeningFees,
     },
-    total: solIntegrationFees + solPenalties + withdrawalFees,
+    total: solIntegrationFees + solPenalties + withdrawalFees + businessOpeningFees,
     totalDepositVolume,
     totalWithdrawalVolume,
     totalUniqueClients,

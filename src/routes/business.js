@@ -7,6 +7,7 @@ import { loginLimiter } from '../middleware/rateLimit.js';
 import { notifyAdmins, notifyUser } from '../utils/notify.js';
 import { DOCUMENTS, LEGAL_FORMS, TURNOVER_RANGES, WITHDRAWAL_CAPS } from '../utils/businessTypes.js';
 import { generateUniqueClientId, publicUser, signToken } from './auth.js';
+import { KYB_FEE, createKybSession, kybEnabled, refreshKyb, summarizeKyb } from '../utils/diditKyb.js';
 
 // ---------------------------------------------------------------------------
 // KONT ANTREPRIZ
@@ -117,7 +118,62 @@ businessRouter.get('/me', async (req, res) => {
     missing: missingFor(profile, documents),
     repVerified: user.verified,
     editable: EDITABLE.includes(profile.status),
+    kyb: {
+      enabled: kybEnabled(),
+      fee: KYB_FEE(),
+      feePaid: !!profile.kybFeePaidAt,
+      status: profile.kybStatus,
+      url: profile.kybStatus && !['Approved', 'Declined'].includes(profile.kybStatus) ? profile.kybUrl : null,
+      startedAt: profile.kybStartedAt,
+    },
   });
+});
+
+// VERIFIKASYON OTOMATIK ANTREPRIZ (Didit KYB). Premye fwa: frè ouvèti a pran sou
+// balans antrepriz la (KYB_FEE_HTG, default 1 500 HTG) — l ap kouvri kou verifikasyon an.
+// Si sesyon an bezwen refè, pa gen frè ankò.
+businessRouter.post('/me/kyb/start', async (req, res) => {
+  if (!kybEnabled()) return res.status(503).json({ error: 'Verifikasyon otomatik antrepriz la poko disponib.' });
+  const business = await prisma.businessProfile.findUnique({ where: { userId: req.user.id } });
+  if (!business) return res.status(404).json({ error: 'Dosye antrepriz la pa jwenn.' });
+  if (business.status === 'draft') return res.status(400).json({ error: 'Soumèt dosye antrepriz la anvan verifikasyon otomatik la.' });
+  if (business.kybStatus === 'Approved') return res.status(409).json({ error: 'Antrepriz la deja verifye.' });
+
+  // Yon sesyon ki toujou ouvè: bay menm lyen an.
+  if (business.kybSessionId && business.kybUrl && !['Declined', 'Approved', 'Expired', 'Abandoned'].includes(business.kybStatus || '')) {
+    return res.json({ url: business.kybUrl, sessionId: business.kybSessionId });
+  }
+
+  const fee = KYB_FEE();
+  if (!business.kybFeePaidAt && fee > 0) {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { balance: true, feeableBalance: true } });
+    if ((user?.balance ?? 0) < fee) {
+      return res.status(402).json({ error: `Balans ou pa ase pou frè ouvèti kont antrepriz la (${fee.toLocaleString('fr-FR')} HTG). Fè yon depo anvan.`, code: 'INSUFFICIENT_BALANCE', fee });
+    }
+    // Pran frè a yon sèl fwa (tranzaksyon atomik — pa janm de fwa).
+    const charged = await prisma.$transaction(async (tx) => {
+      const fresh = await tx.businessProfile.findUnique({ where: { id: business.id }, select: { kybFeePaidAt: true } });
+      if (fresh.kybFeePaidAt) return false;
+      const u = await tx.user.update({ where: { id: req.user.id, balance: { gte: fee } }, data: { balance: { decrement: fee } } });
+      if (u.feeableBalance > u.balance) await tx.user.update({ where: { id: u.id }, data: { feeableBalance: Math.max(0, u.balance) } });
+      await tx.platformFee.create({ data: { userId: req.user.id, kind: 'business_opening', amount: fee, note: business.legalName } });
+      await tx.businessProfile.update({ where: { id: business.id }, data: { kybFeePaidAt: new Date() } });
+      return true;
+    }).catch(() => null);
+    if (charged === null) return res.status(402).json({ error: 'Balans ou pa ase pou frè ouvèti kont antrepriz la.', code: 'INSUFFICIENT_BALANCE', fee });
+    if (charged) notifyUser(req.user.id, { title: 'Frè ouvèti kont antrepriz', body: `${fee.toLocaleString('fr-FR')} HTG retire sou balans ou pou verifikasyon antrepriz la.`, type: 'wallet' }).catch(() => {});
+  }
+
+  try {
+    const s = await createKybSession(business);
+    await prisma.businessProfile.update({
+      where: { id: business.id },
+      data: { kybSessionId: s.session_id, kybUrl: s.url, kybStatus: s.status || 'Not Started', kybStartedAt: new Date(), kybReport: null },
+    });
+    res.status(201).json({ url: s.url, sessionId: s.session_id });
+  } catch {
+    res.status(502).json({ error: 'Nou pa t kapab kòmanse verifikasyon an — eseye ankò pita. (Frè a deja peye, ou p ap peye l ankò.)' });
+  }
 });
 
 async function myEditableBusiness(req, res) {
@@ -260,4 +316,21 @@ adminBusinessRouter.post('/businesses/:id/reject', (req, res) => {
 adminBusinessRouter.post('/businesses/:id/request-info', (req, res) => {
   if (!req.body?.note?.trim()) return res.status(400).json({ error: 'Ekri sa ou bezwen kliyan an voye.' });
   return decide(req, res, 'needs_info', 'Dosye antrepriz: nou bezwen plis enfòmasyon', () => req.body.note.trim());
+});
+
+// Admin: rezime Didit KYB + rafrechi l dirèkteman nan Didit.
+adminBusinessRouter.get('/businesses/:id/kyb', async (req, res) => {
+  const b = await prisma.businessProfile.findUnique({ where: { id: req.params.id } });
+  if (!b) return res.status(404).json({ error: 'Dosye antrepriz la pa jwenn.' });
+  res.json({ status: b.kybStatus, startedAt: b.kybStartedAt, feePaidAt: b.kybFeePaidAt, summary: summarizeKyb(b.kybReport) });
+});
+adminBusinessRouter.post('/businesses/:id/kyb/refresh', async (req, res) => {
+  const b = await prisma.businessProfile.findUnique({ where: { id: req.params.id } });
+  if (!b?.kybSessionId) return res.status(404).json({ error: 'Pa gen verifikasyon Didit pou antrepriz sa a.' });
+  try {
+    const u = await refreshKyb(b);
+    res.json({ status: u.kybStatus, startedAt: u.kybStartedAt, feePaidAt: u.kybFeePaidAt, summary: summarizeKyb(u.kybReport) });
+  } catch {
+    res.status(502).json({ error: 'Nou pa t ka jwenn rezilta a nan Didit — eseye ankò.' });
+  }
 });

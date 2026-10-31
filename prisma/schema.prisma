@@ -74,6 +74,7 @@ model User {
   verificationRequests VerificationRequest[]
   supportMessages   SupportMessage[]
   emailCodes        EmailCode[]
+  platformFees      PlatformFee[]
   trustedDevices    TrustedDevice[]
 }
 
@@ -461,6 +462,13 @@ model BusinessProfile {
   submittedAt     DateTime?
   decidedAt       DateTime?
   decidedBy       String?
+  // Verifikasyon otomatik antrepriz la (Didit KYB: rejis, aksyonè, UBO, AML)
+  kybSessionId    String?   @unique
+  kybUrl          String?
+  kybStatus       String?   // estati Didit: Not Started | In Progress | Approved | Declined | In Review | Resubmitted
+  kybReport       String?   // rapò konplè Didit (JSON kòm tèks)
+  kybStartedAt    DateTime?
+  kybFeePaidAt    DateTime? // frè ouvèti kont antrepriz la deja peye (yon sèl fwa)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   user            User      @relation(fields: [userId], references: [id])
@@ -548,4 +556,17 @@ model TrustedDevice {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, deviceHash])
+}
+
+// Frè BLICPay pran sou balans yon kliyan (egz. frè ouvèti kont antrepriz).
+model PlatformFee {
+  id        String   @id @default(cuid())
+  userId    String
+  kind      String   // "business_opening"
+  amount    Int
+  note      String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
 }
