@@ -99,6 +99,12 @@ const CODE_COPY = {
     intro: { ht: 'Mèsi paske w louvri kont BLICPay ou. Pou fini enskripsyon an, konfime adrès imèl ou ak kòd ki anba a.', fr: 'Merci d’avoir ouvert votre compte BLICPay. Pour finaliser votre inscription, confirmez votre adresse e-mail en saisissant le code ci-dessous.', en: 'Thank you for opening your BLICPay account. To complete your registration, confirm your email address by entering the code below.' },
     note: { ht: 'Si se pa ou ki fè enskripsyon sa a, ou ka inyore mesaj sa a san okenn pwoblèm.', fr: 'Si vous n’êtes pas à l’origine de cette inscription, vous pouvez ignorer ce message en toute sécurité.', en: 'If you did not sign up for BLICPay, you can safely ignore this message.' },
   },
+  change_email: {
+    badge: { ht: 'Sekirite', fr: 'Sécurité', en: 'Security' },
+    title: { ht: 'Konfime nouvo imèl ou', fr: 'Confirmez votre nouvelle adresse e-mail', en: 'Confirm your new email address' },
+    intro: { ht: 'Ou mande pou ajoute adrès imèl sa a sou kont BLICPay ou. Antre kòd ki anba a pou konfime l.', fr: 'Vous avez demandé à associer cette adresse e-mail à votre compte BLICPay. Saisissez le code ci-dessous pour la confirmer.', en: 'You asked to link this email address to your BLICPay account. Enter the code below to confirm it.' },
+    note: { ht: 'Si se pa ou ki fè demann sa a, inyore mesaj sa a — anyen p ap chanje.', fr: 'Si vous n’êtes pas à l’origine de cette demande, ignorez ce message : rien ne sera modifié.', en: 'If you didn’t make this request, ignore this message — nothing will change.' },
+  },
   reset: {
     badge: { ht: 'Modpas', fr: 'Mot de passe', en: 'Password' },
     title: { ht: 'Reyinisyalize modpas ou', fr: 'Réinitialisez votre mot de passe', en: 'Reset your password' },

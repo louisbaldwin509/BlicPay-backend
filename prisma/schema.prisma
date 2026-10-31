@@ -50,6 +50,7 @@ model User {
   termsAcceptedAt DateTime?
   termsVersion   String?
   emailVerifiedAt DateTime?
+  pendingEmail    String?   // nouvo imèl k ap tann konfimasyon (chanjman imèl)
   preferredLang   String?   // ht | fr | en — lang imèl yo
   welcomeSentAt   DateTime? // imèl byenveni deja voye
   betaAccess    Boolean   @default(false) // mod tès prive: admin bay aksè a (tèstè Google Play / Apple)

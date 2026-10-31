@@ -6,7 +6,7 @@ import { loginLimiter } from '../middleware/rateLimit.js';
 import { requireAuth } from '../middleware/auth.js';
 import { hasAppAccess, PRIVATE_BETA_MESSAGE } from '../utils/access.js';
 import { parseClientProfile } from '../utils/clientProfile.js';
-import { consumeCode, isTrustedDevice, issueCode, maskEmail, otpApplies, resendCode, trustDevice } from '../utils/emailCodes.js';
+import { consumeCode, isStaff, isTrustedDevice, issueCode, maskEmail, otpApplies, resendCode, trustDevice } from '../utils/emailCodes.js';
 import rateLimit from 'express-rate-limit';
 import { sendWelcome } from '../utils/email.js';
 
@@ -128,7 +128,7 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
   }
 
   // Nouvo aparèy → kòd pa imèl anvan nou bay aksè.
-  if (otpApplies(user) && !(await isTrustedDevice(user.id, deviceId))) {
+  if (otpApplies(user) && (isStaff(user) || !(await isTrustedDevice(user.id, deviceId)))) {
     try {
       const ch = await issueCode(user, user.emailVerifiedAt ? 'login' : 'verify_email', reqLang(req));
       return res.json({ otpRequired: true, challengeId: ch.id, email: maskEmail(user.email) });
@@ -151,7 +151,7 @@ authRouter.post('/login/verify', codeLimiter, async (req, res) => {
   if (!hasAppAccess(user)) return res.status(403).json({ error: PRIVATE_BETA_MESSAGE, code: 'PRIVATE_BETA' });
   await trustDevice(user.id, deviceId, deviceLabel);
   // Premye imèl konfime → imèl byenveni (yon sèl fwa).
-  if (!user.welcomeSentAt && (await sendWelcome('welcome', user, reqLang(req)))) {
+  if (user.role === 'member' && !user.welcomeSentAt && (await sendWelcome('welcome', user, reqLang(req)))) {
     await prisma.user.update({ where: { id: user.id }, data: { welcomeSentAt: new Date() } }).catch(() => {});
   }
   return finishLogin(user, res);
@@ -219,4 +219,40 @@ authRouter.post('/change-password', loginLimiter, requireAuth, async (req, res) 
   const passwordHash = await bcrypt.hash(newPassword, 10);
   await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
   res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// SEKIRITE KONT — imèl (pou kòd koneksyon yo). Itil sitou pou admin/ajan yo.
+// ---------------------------------------------------------------------------
+authRouter.get('/me/security', requireAuth, async (req, res) => {
+  const u = await prisma.user.findUnique({ where: { id: req.user.id }, select: { email: true, emailVerifiedAt: true, role: true } });
+  res.json({ email: u?.email ?? null, emailVerified: !!u?.emailVerifiedAt, otpActive: otpApplies(u), everyLogin: isStaff(u) });
+});
+
+authRouter.post('/me/email', codeLimiter, requireAuth, async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return res.status(400).json({ error: 'Imèl la pa valab.' });
+  const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+  if (!user || !(await bcrypt.compare(String(req.body?.password || ''), user.passwordHash))) {
+    return res.status(400).json({ error: 'Modpas aktyèl la pa kòrèk.' });
+  }
+  const taken = await prisma.user.findUnique({ where: { email } });
+  if (taken && taken.id !== user.id) return res.status(409).json({ error: 'Yon kont deja itilize imèl sa a.' });
+  const updated = await prisma.user.update({ where: { id: user.id }, data: { pendingEmail: email } });
+  try {
+    const ch = await issueCode(updated, 'change_email', reqLang(req), email);
+    res.json({ ok: true, challengeId: ch.id, email: maskEmail(email) });
+  } catch {
+    res.status(502).json({ error: 'Nou pa t ka voye imèl la — eseye ankò nan kèk minit.' });
+  }
+});
+
+authRouter.post('/me/email/verify', codeLimiter, requireAuth, async (req, res) => {
+  const r = await consumeCode(req.body?.challengeId, req.body?.code, 'change_email');
+  if (r.error) return res.status(400).json({ error: r.error });
+  if (r.user.id !== req.user.id || !r.user.pendingEmail) return res.status(400).json({ error: 'Kòd sa a pa valab ankò — mande yon lòt.' });
+  const taken = await prisma.user.findUnique({ where: { email: r.user.pendingEmail } });
+  if (taken && taken.id !== r.user.id) return res.status(409).json({ error: 'Yon kont deja itilize imèl sa a.' });
+  const u = await prisma.user.update({ where: { id: r.user.id }, data: { email: r.user.pendingEmail, pendingEmail: null, emailVerifiedAt: new Date() } });
+  res.json({ ok: true, email: u.email });
 });
