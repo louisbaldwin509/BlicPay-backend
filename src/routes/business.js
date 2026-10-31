@@ -177,12 +177,11 @@ businessRouter.post('/me/kyb/start', async (req, res) => {
     return res.json({ url: business.kybUrl, sessionId: business.kybSessionId });
   }
 
+  // Frè ouvèti a DWE peye anvan nou kreye (epi peye) sesyon Didit la.
   const fee = await KYB_FEE();
-  if (!business.kybFeePaidAt && fee > 0) {
-    const r = await chargeKybFee(req.user.id);
-    if (r === 'insufficient') {
-      return res.status(402).json({ error: `Balans ou pa ase pou frè ouvèti kont antrepriz la (${fee.toLocaleString('fr-FR')} HTG). Fè yon depo anvan.`, code: 'INSUFFICIENT_BALANCE', fee });
-    }
+  const paid = await prisma.businessProfile.findUnique({ where: { id: business.id }, select: { kybFeePaidAt: true } });
+  if (fee > 0 && !paid?.kybFeePaidAt) {
+    return res.status(402).json({ error: 'Peye frè ouvèti kont antrepriz la anvan verifikasyon an.', code: 'FEE_REQUIRED', fee });
   }
 
   try {
