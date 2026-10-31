@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { getUsdHtgRate } from '../utils/fxRate.js';
 import { afterDepositConfirmed } from '../utils/kybFee.js';
 import { PROFILE_SELECT } from '../utils/clientProfile.js';
 import { sendWelcome } from '../utils/email.js';
@@ -676,7 +677,6 @@ const SOL_INTEGRATION_FEE_RATE = 0.015; // 1.5% — chaje sèlman lè admin apwo
 // okenn kalkil finansye reyèl (platfòm nan rete 100% HTG). Kache pandan yon
 // jounen — BRH pibliye tal la yon sèl fwa pa jou, pa gen rezon rele API a
 // plizyè fwa pou menm jou a (kenbe kota gratis la).
-let exchangeRateCache = null; // { rate, rateDate, fetchedAt }
 
 // ---- Notifikasyon admin — chak admin/ajan wè PWÒP notifikasyon pa li ----
 // (yo se User tou, kidonk yo itilize menm modèl Notification ak kliyan yo,
@@ -707,33 +707,9 @@ adminRouter.post('/notifications/read-all', requireAdminOrAgent, async (req, res
 });
 
 adminRouter.get('/exchange-rate', requireAdminOrAgent, async (req, res) => {
-  const today = new Date().toISOString().slice(0, 10);
-  if (exchangeRateCache && exchangeRateCache.fetchedAt === today) {
-    return res.json({ rate: exchangeRateCache.rate, rateDate: exchangeRateCache.rateDate, cached: true });
-  }
-
-  try {
-    const r = await fetch('https://allratestoday.com/api/v1/central-bank/brh/latest?source=USD&target=HTG', {
-      headers: { Authorization: `Bearer ${process.env.BRH_RATE_API_KEY}` },
-    });
-    if (!r.ok) throw new Error(`BRH rate API ${r.status}`);
-    const data = await r.json();
-    // Estrikti egzak repons lan ka varye — n eseye plizyè chemen rezonab.
-    const rate = data.rate || data.data?.rate || data.value;
-    const rateDate = data.rate_date || data.date || today;
-    if (!rate) throw new Error('Pa jwenn tal la nan repons lan.');
-
-    exchangeRateCache = { rate, rateDate, fetchedAt: today };
-    res.json({ rate, rateDate, cached: false });
-  } catch (err) {
-    console.error('BRH exchange rate fetch error:', err);
-    // Si nou gen yon ansyen tal an kachèt (menm si li pa jodi a), pi bon pase
-    // pa gen anyen ditou pou afichay la.
-    if (exchangeRateCache) {
-      return res.json({ rate: exchangeRateCache.rate, rateDate: exchangeRateCache.rateDate, cached: true, stale: true });
-    }
-    res.status(502).json({ error: 'Nou pa t ka jwenn tal chanj jodi a.' });
-  }
+  const r = await getUsdHtgRate();
+  if (r.fallback) return res.status(502).json({ error: 'Nou pa t ka jwenn tal chanj jodi a.' });
+  res.json({ rate: r.rate, rateDate: r.rateDate, cached: r.cached, stale: r.stale });
 });
 
 adminRouter.get('/reserves', requireAdminOrAgent, async (req, res) => {

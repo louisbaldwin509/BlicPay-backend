@@ -7,7 +7,7 @@ import { notifyUser } from './notify.js';
 
 // Retounen 'charged' | 'already' | 'insufficient' | 'nobusiness'
 export async function chargeKybFee(userId) {
-  const fee = KYB_FEE();
+  const fee = await KYB_FEE();
   const business = await prisma.businessProfile.findUnique({ where: { userId } });
   if (!business) return 'nobusiness';
   if (business.kybFeePaidAt || fee <= 0) return 'already';

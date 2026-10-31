@@ -7,7 +7,7 @@ import { loginLimiter } from '../middleware/rateLimit.js';
 import { notifyAdmins, notifyUser } from '../utils/notify.js';
 import { DOCUMENTS, LEGAL_FORMS, TURNOVER_RANGES, WITHDRAWAL_CAPS } from '../utils/businessTypes.js';
 import { generateUniqueClientId, publicUser, signToken } from './auth.js';
-import { KYB_FEE, createKybSession, kybEnabled, refreshKyb, summarizeKyb } from '../utils/diditKyb.js';
+import { KYB_FEE, kybFeeQuote, createKybSession, kybEnabled, refreshKyb, summarizeKyb } from '../utils/diditKyb.js';
 import { chargeKybFee } from '../utils/kybFee.js';
 import { createMoncashPayment } from '../utils/moncash.js';
 import { generateReference } from '../utils/reference.js';
@@ -123,7 +123,7 @@ businessRouter.get('/me', async (req, res) => {
     editable: EDITABLE.includes(profile.status),
     kyb: {
       enabled: kybEnabled(),
-      fee: KYB_FEE(),
+      ...(await (async () => { const q = await kybFeeQuote(); return { fee: q.htg, feeUsd: q.usd, feeRate: q.rate }; })()),
       feePaid: !!profile.kybFeePaidAt,
       status: profile.kybStatus,
       url: profile.kybStatus && !['Approved', 'Declined'].includes(profile.kybStatus) ? profile.kybUrl : null,
@@ -136,7 +136,7 @@ businessRouter.get('/me', async (req, res) => {
 // Peye frè ouvèti a SÈLMAN (san lanse Didit touswit): ak balans lan, oswa MonCash.
 // (NatCash: kliyan an fè yon depo NatCash ak purpose "kyb_fee" — frè a pran lè admin konfime l.)
 businessRouter.post('/me/kyb/pay', async (req, res) => {
-  const fee = KYB_FEE();
+  const fee = await KYB_FEE();
   const business = await prisma.businessProfile.findUnique({ where: { userId: req.user.id } });
   if (!business) return res.status(404).json({ error: 'Dosye antrepriz la pa jwenn.' });
   if (business.kybFeePaidAt || fee <= 0) return res.json({ ok: true, paid: true });
@@ -163,7 +163,7 @@ businessRouter.post('/me/kyb/pay', async (req, res) => {
 });
 
 // VERIFIKASYON OTOMATIK ANTREPRIZ (Didit KYB). Premye fwa: frè ouvèti a pran sou
-// balans antrepriz la (KYB_FEE_HTG, default 1 500 HTG) — l ap kouvri kou verifikasyon an.
+// balans antrepriz la (KYB_FEE_USD, default 100 $ an HTG selon tal BRH) — l ap kouvri kou verifikasyon an.
 // Si sesyon an bezwen refè, pa gen frè ankò.
 businessRouter.post('/me/kyb/start', async (req, res) => {
   if (!kybEnabled()) return res.status(503).json({ error: 'Verifikasyon otomatik antrepriz la poko disponib.' });
@@ -177,7 +177,7 @@ businessRouter.post('/me/kyb/start', async (req, res) => {
     return res.json({ url: business.kybUrl, sessionId: business.kybSessionId });
   }
 
-  const fee = KYB_FEE();
+  const fee = await KYB_FEE();
   if (!business.kybFeePaidAt && fee > 0) {
     const r = await chargeKybFee(req.user.id);
     if (r === 'insufficient') {

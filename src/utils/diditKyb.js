@@ -1,9 +1,21 @@
 // Verifikasyon otomatik antrepriz (Didit KYB): rejis ofisyèl, aksyonè, UBO, AML.
-// Varyab Railway: DIDIT_API_KEY (menm ak KYC a), DIDIT_KYB_WORKFLOW_ID, KYB_FEE_HTG (default 1500).
+// Varyab Railway: DIDIT_API_KEY (menm ak KYC a), DIDIT_KYB_WORKFLOW_ID, KYB_FEE_USD (default 100).
 import { prisma } from './db.js';
+import { getUsdHtgRate } from './fxRate.js';
 
 const DIDIT = 'https://verification.didit.me';
-export const KYB_FEE = () => Math.max(0, parseInt(process.env.KYB_FEE_HTG || '1500', 10) || 0);
+// Frè ouvèti kont antrepriz: fikse an USD (default 100 $), peye an HTG selon tal BRH jounen an
+// (awondi anwo a 10 HTG pre). KYB_FEE_HTG, si li mete, ranplase kalkil la ak yon montan fiks.
+export async function kybFeeQuote() {
+  if (process.env.KYB_FEE_HTG) {
+    const htg = Math.max(0, parseInt(process.env.KYB_FEE_HTG, 10) || 0);
+    return { htg, usd: null, rate: null };
+  }
+  const usd = Math.max(0, Number(process.env.KYB_FEE_USD ?? 100) || 0);
+  const { rate } = await getUsdHtgRate();
+  return { htg: Math.ceil((usd * rate) / 10) * 10, usd, rate };
+}
+export const KYB_FEE = async () => (await kybFeeQuote()).htg;
 export const kybEnabled = () => !!(process.env.DIDIT_API_KEY && process.env.DIDIT_KYB_WORKFLOW_ID);
 
 export async function createKybSession(business) {
