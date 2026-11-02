@@ -6,7 +6,8 @@ import { loginLimiter } from '../middleware/rateLimit.js';
 import { requireAuth } from '../middleware/auth.js';
 import { hasAppAccess, PRIVATE_BETA_MESSAGE } from '../utils/access.js';
 import { parseClientProfile } from '../utils/clientProfile.js';
-import { consumeCode, isStaff, isTrustedDevice, issueCode, maskEmail, otpApplies, resendCode, trustDevice } from '../utils/emailCodes.js';
+import { consumeCode, hashDevice, isStaff, isTrustedDevice, issueCode, maskEmail, otpApplies, resendCode, trustDevice } from '../utils/emailCodes.js';
+import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import { sendWelcome } from '../utils/email.js';
 
@@ -187,6 +188,7 @@ authRouter.post('/password/reset', codeLimiter, async (req, res) => {
   await prisma.$transaction([
     prisma.user.update({ where: { id: r.user.id }, data: { passwordHash } }),
     prisma.trustedDevice.deleteMany({ where: { userId: r.user.id } }),
+    prisma.biometricKey.deleteMany({ where: { userId: r.user.id } }),
   ]);
   res.json({ ok: true });
 });
@@ -218,6 +220,55 @@ authRouter.post('/change-password', loginLimiter, requireAuth, async (req, res) 
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
   await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+  // Nouvo modpas → koneksyon biyometrik sou LÒT aparèy yo anile (aparèy sa a ka reaktive l).
+  await prisma.biometricKey.deleteMany({ where: { userId: user.id, NOT: { deviceHash: hashDevice(req.body?.deviceId || '-') } } }).catch(() => {});
+  res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// KONEKSYON BIYOMETRIK (Face ID sou iPhone, anprent / vizaj sou Android)
+// ---------------------------------------------------------------------------
+const sha = (v) => crypto.createHash('sha256').update(String(v)).digest('hex');
+const bioLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Twòp tantativ — tann kèk minit epi eseye ankò.' } });
+
+// Aktive: kliyan an deja konekte (epi li fèk pase Face ID / anprent sou telefòn nan).
+authRouter.post('/biometric/enroll', bioLimiter, requireAuth, async (req, res) => {
+  const deviceId = String(req.body?.deviceId || '');
+  if (deviceId.length < 8) return res.status(400).json({ error: 'Aparèy la pa idantifye.' });
+  const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+  if (!user) return res.status(404).json({ error: 'Kont lan pa jwenn.' });
+  if (isStaff(user)) return res.status(403).json({ error: 'Kont ekip BLICPay yo dwe konekte ak modpas + kòd imèl.' });
+  const secret = crypto.randomBytes(32).toString('base64url');
+  const deviceHash = hashDevice(deviceId);
+  const label = req.body?.label ? String(req.body.label).slice(0, 80) : null;
+  const key = await prisma.biometricKey.upsert({
+    where: { userId_deviceHash: { userId: user.id, deviceHash } },
+    create: { userId: user.id, deviceHash, secretHash: sha(secret), label },
+    update: { secretHash: sha(secret), label, lastUsedAt: new Date() },
+  });
+  await trustDevice(user.id, deviceId, label).catch(() => {});
+  res.json({ keyId: key.id, secret });
+});
+
+// Konekte: telefòn nan voye kle a (li jwenn li sèlman apre Face ID / anprent).
+authRouter.post('/biometric/login', bioLimiter, async (req, res) => {
+  const { keyId, secret, deviceId } = req.body || {};
+  const key = keyId ? await prisma.biometricKey.findUnique({ where: { id: String(keyId) }, include: { user: true } }) : null;
+  const ok = key && deviceId && key.deviceHash === hashDevice(deviceId)
+    && crypto.timingSafeEqual(Buffer.from(key.secretHash), Buffer.from(sha(secret || '')));
+  if (!ok) return res.status(401).json({ error: 'Koneksyon biyometrik la pa valab ankò — konekte ak modpas ou.', code: 'BIO_INVALID' });
+  const user = key.user;
+  if (user.blocked || user.deletedAt) return res.status(403).json({ error: 'Kont sa a bloke. Kontakte sipò BLICPay.' });
+  if (isStaff(user)) return res.status(403).json({ error: 'Kont ekip BLICPay yo dwe konekte ak modpas + kòd imèl.' });
+  if (!hasAppAccess(user)) return res.status(403).json({ error: PRIVATE_BETA_MESSAGE, code: 'PRIVATE_BETA' });
+  await prisma.biometricKey.update({ where: { id: key.id }, data: { lastUsedAt: new Date() } }).catch(() => {});
+  return finishLogin(user, res);
+});
+
+// Dezaktive sou aparèy sa a.
+authRouter.post('/biometric/disable', requireAuth, async (req, res) => {
+  const deviceId = String(req.body?.deviceId || '');
+  await prisma.biometricKey.deleteMany({ where: { userId: req.user.id, deviceHash: hashDevice(deviceId) } });
   res.json({ ok: true });
 });
 

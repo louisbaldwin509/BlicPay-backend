@@ -76,6 +76,7 @@ model User {
   emailCodes        EmailCode[]
   platformFees      PlatformFee[]
   trustedDevices    TrustedDevice[]
+  biometricKeys     BiometricKey[]
 }
 
 model Deposit {
@@ -559,6 +560,22 @@ model EmailCode {
 }
 
 // Aparèy (telefòn / navigatè) kliyan an deja konfime ak yon kòd imèl.
+// Koneksyon biyometrik (Face ID / anprent) — yon kle sekrè pa aparèy.
+// Sèvè a kenbe sèlman HASH kle a; telefòn nan kenbe kle a nan Keychain/Keystore,
+// epi li bay li sèlman apre Face ID / anprent reyisi.
+model BiometricKey {
+  id         String   @id @default(cuid())
+  userId     String
+  deviceHash String
+  secretHash String
+  label      String?
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceHash])
+}
+
 model TrustedDevice {
   id         String   @id @default(cuid())
   userId     String
