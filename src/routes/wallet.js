@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../utils/db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { getUsdHtgRate } from '../utils/fxRate.js';
 
 export const walletRouter = Router();
 
@@ -29,7 +30,21 @@ export function parseDateRange(query) {
 
 walletRouter.get('/balance', requireAuth, async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: req.user.id } });
-  res.json({ balance: user.balance });
+  // Ekivalan an dola (USD) selon tal BRH jou a — enfòmasyon sèlman, lajan an rete an goud.
+  const fx = await getUsdHtgRate().catch(() => null);
+  const usdRate = fx?.rate || null;
+  res.json({
+    balance: user.balance,
+    usdRate,
+    usdRateDate: fx?.rateDate ?? null,
+    balanceUsd: usdRate ? Math.round((user.balance / usdRate) * 100) / 100 : null,
+  });
+});
+
+// Tal chanj USD → HTG (BRH) pou kliyan yo.
+walletRouter.get('/rate', requireAuth, async (req, res) => {
+  const fx = await getUsdHtgRate();
+  res.json({ usdHtg: fx.rate, date: fx.rateDate, stale: !!fx.stale });
 });
 
 // Melanje depo AK retrè nan menm istorik la, klase pa dat, chak youn make
